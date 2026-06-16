@@ -1,0 +1,649 @@
+---
+title: "Sound Life Cohort — Exploratory Data Analysis"
+subtitle: "Whole Blood RNA-seq & Plasma Proteomics"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 8,
+  fig.height = 5
+)
+```
+
+```{r libraries, message=FALSE}
+library(anndataR)
+library(Seurat)
+library(SeuratObject)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(naniar)
+library(variancePartition)
+```
+
+---
+
+# Overview
+
+This document explores three datasets from the **Sound Life Cohort** — a study that followed healthy young adults (ages 25–35) and older adults (ages 55–65) from the Seattle area over multiple years, collecting blood samples at regular visits. The goal of this EDA is to understand what we have, check data quality, and identify anything that needs to be accounted for when building the Bayesian model.
+
+| Dataset | What it contains |
+|:---|:---|
+| `whole_nostim` | Gene activity measured from blood samples that were left untouched — a baseline snapshot of each person's immune system |
+| `whole_exvivo` | Gene activity from blood samples that were deliberately exposed to immune triggers (SEB, LPS, Poly I:C) to see how the immune system *responds* |
+| `plasma` | Protein levels measured from plasma (the liquid part of blood) — 1,473 proteins per sample, capturing what the immune system is actively secreting |
+
+---
+
+# 1. Data Loading
+
+```{r load-data}
+whole_nostim <- read_h5ad(
+  "~/Downloads/sound-life_whole-blood_no-stim_copy.h5ad",
+  as = "Seurat"
+)
+
+whole_exvivo <- read_h5ad(
+  "~/Downloads/sound-life_whole-blood_ex-vivo-stim_copy.h5ad",
+  as = "Seurat"
+)
+
+plasma <- read.csv("~/Downloads/sound_life_all_olink_copy.csv")
+```
+
+---
+
+# 2. Whole Blood RNA-seq — Unstimulated
+
+## 2.1 Dataset Size
+
+```{r nostim-dims}
+dim(whole_nostim)
+```
+
+> We have measurements for **58,302 genes across 838 blood samples**. Each sample comes from one person at one visit. The expected number was 836, so two extra samples are present — likely duplicates or administrative entries. Not a problem for exploration, but worth checking before modeling.
+
+---
+
+## 2.2 Who Is in the Study?
+
+```{r nostim-meta-summary}
+cat("Biological Sex \n")
+table(whole_nostim$subject.biologicalSex)
+
+cat("\n Age Group \n")
+table(whole_nostim$subject.ageGroup)
+
+cat("\n CMV Status \n")
+table(whole_nostim$subject.cmv)
+
+cat("\n BMI \n")
+summary(whole_nostim$subject.bmi)
+```
+
+> - **Sex:** Roughly balanced — about 57% female, 43% male across samples.
+> - **Age group:** Fairly even split between Older Adults (~53%) and Young Adults (~47%).
+> - **CMV status:** CMV (cytomegalovirus) is a common, usually harmless virus that most people catch at some point in life. Once infected, it stays in your body permanently and is known to have lasting effects on the immune system. About 46% of participants here have been infected (CMV Positive), 54% have not.
+> - **BMI:** The average BMI is about 26, with a healthy range across participants. Notably, 37 samples are missing a BMI value — these belong to a subset of subjects, and we'll need to handle this gap in the model (either by estimating the missing values or including a flag for "BMI unknown").
+
+---
+
+## 2.3 Does CMV Status Vary by Age Group?
+
+```{r cmv-age-confound}
+tab <- table(whole_nostim$subject.ageGroup, whole_nostim$subject.cmv)
+tab
+prop.table(tab, margin = 1)
+```
+
+> About 54% of Older Adults have been infected with CMV, compared to only 36% of Young Adults.
+
+---
+
+## 2.4 Is Sex Balanced Within Age Groups?
+
+```{r sex-age-balance}
+table(whole_nostim$subject.ageGroup, whole_nostim$subject.biologicalSex)
+```
+
+> Sex is evenly distributed within both age groups.
+
+---
+
+## 2.5 How Good Is the Sequencing Data?
+
+```{r nostim-seq-quality, fig.height=4}
+par(mfrow = c(1, 2))
+
+hist(whole_nostim$nCount_RNA, breaks = 50,
+     main = "Total Read Counts per Sample", xlab = "nCount_RNA",
+     col = "steelblue", border = "white")
+
+hist(whole_nostim$nFeature_RNA, breaks = 50,
+     main = "Genes Detected per Sample", xlab = "nFeature_RNA",
+     col = "darkorange", border = "white")
+
+par(mfrow = c(1, 1))
+
+summary(whole_nostim$nCount_RNA)
+summary(whole_nostim$nFeature_RNA)
+```
+
+> - **Total read counts**: Shows number of genetic "messages" captured from each blood sample. The median is about 3.5 million reads per sample, and the distribution is smooth and bell-shaped with no extreme outliers. This means every sample was processed to a similar depth.
+> - **Genes detected**: On average, we can measure activity in about 17,450 out of 58,302 genes per sample. The tight distribution shows that RNA quality was good across all samples.
+
+---
+
+## 2.6 How Was the Study Structured Over Time?
+
+```{r visit-structure}
+meta <- whole_nostim@meta.data %>%
+  mutate(
+    event = case_when(
+      grepl("Flu Year 1", sample.visitName)       ~ "Flu_Y1",
+      grepl("Flu Year 2", sample.visitName)       ~ "Flu_Y2",
+      grepl("Immune Variation", sample.visitName) ~ "ImVar",
+      TRUE ~ "StandAlone"
+    ),
+    within_event_day = case_when(
+      grepl("Day 0",  sample.visitName) ~ 0,
+      grepl("Day 7",  sample.visitName) ~ 7,
+      grepl("Day 90", sample.visitName) ~ 90,
+      TRUE ~ NA_real_
+    ),
+    include_in_model = !is.na(within_event_day)
+  )
+
+cat(" Number of Samples Collected at Each Visit:  \n")
+table(meta$sample.visitName)
+
+cat("\n Event x Within-event day \n")
+table(meta$event, meta$within_event_day, useNA = "ifany")
+
+```
+
+> Visits were organized around specific biological events:
+>
+> - **Flu vaccination visits (Years 1 & 2):** Blood was drawn before the flu shot (Day 0), one week after (Day 7, capturing the acute immune response), and three months later (Day 90, capturing immune memory).
+> - **Immune Variation visits:** Same Day 0 / 7 / 90 structure but without flu vaccination to capture natural immune variation over time.
+> - **Stand-Alone visits (82 samples):** These are extra draws that don't fit the structured Day 0/7/90 pattern. Can't be placed in a consistent timeline relative to an event.
+
+
+```{r visit-spacing}
+hist(whole_nostim@meta.data$sample.daysSinceFirstVisit, breaks = 30,
+     main = "Days Since First Visit (All Samples)",
+     xlab = "Days", col = "steelblue", border = "white")
+```
+
+> The histogram shows when each blood sample was collected relative to each participant's first visit. Rather than being evenly spread over time, samples cluster into three rough bursts: an early cluster around Days 0–100 (Flu Year 1 visits); a middle cluster around Days 150–400 (Flu Year 2 and Immune Variation visits); and a sparser tail from Days 400–800 (later stand-alone and Year 3 visits). The gaps between clusters reflect the ~6-month spacing between study events.
+
+---
+
+## 2.7 Did Participants Stay in the Study?
+
+```{r dropout-analysis}
+visit_counts <- whole_nostim@meta.data %>%
+  group_by(subject.subjectGuid, subject.ageGroup) %>%
+  summarise(n_visits = n(), .groups = "drop")
+
+cat("How many visits per subject? \n")
+table(visit_counts$n_visits)
+
+visit_counts %>%
+  group_by(subject.ageGroup) %>%
+  summarise(
+    mean_visits  = round(mean(n_visits), 2),
+    min_visits   = min(n_visits),
+    max_visits   = max(n_visits),
+    n_complete   = sum(n_visits == 10),
+    n_incomplete = sum(n_visits < 10)
+  )
+```
+
+```{r dropout-plot}
+visit_counts %>%
+  ggplot(aes(x = n_visits, fill = subject.ageGroup)) +
+  geom_histogram(binwidth = 1, position = "dodge", color = "white") +
+  scale_x_continuous(breaks = 1:11) +
+  labs(
+    title = "How Many Visits Did Each Subject Complete?",
+    x     = "Number of Visits",
+    y     = "Number of Subjects",
+    fill  = "Age Group"
+  ) +
+  theme_minimal()
+```
+
+```{r dropout-by-subgroup}
+visit_counts %>%
+  filter(subject.ageGroup == "Young Adult") %>%
+  left_join(
+    whole_nostim@meta.data %>%
+      select(subject.subjectGuid, subject.biologicalSex, subject.cmv) %>%
+      distinct(),
+    by = "subject.subjectGuid"
+  ) %>%
+  group_by(subject.biologicalSex, subject.cmv) %>%
+  summarise(
+    mean_visits  = round(mean(n_visits), 2),
+    n_complete   = sum(n_visits == 10),
+    n_incomplete = sum(n_visits < 10),
+    .groups = "drop"
+  )
+```
+
+> Most participants completed all 10 scheduled visits, but there is some dropout:
+>
+> - **Older Adults** were better retained (average 9.4 visits; 38 out of 47 completed all 10).
+> - **Young Adults** had more dropout (average 8.1 visits; only 26 out of 49 completed all 10).
+> - Among Young Adults, CMV-positive females had notably fewer visits on average (7.2) and the lowest completion rate (only 2 out of 9 finished).
+
+---
+
+## 2.8 Which Genes Vary the Most?
+
+```{r top-variable-genes}
+mat_nostim <- GetAssayData(whole_nostim, layer = "X")
+gene_var    <- apply(mat_nostim, 1, var)
+top_genes   <- names(sort(gene_var, decreasing = TRUE))[1:50]
+
+cat("Top 20 most variable genes across all samples:\n")
+head(top_genes, 20)
+```
+
+> These are the genes whose activity levels differ the most across samples.
+
+---
+
+## 2.9 What Is Actually Driving Gene Expression Differences?
+
+```{r varpart, cache=TRUE, fig.height=5}
+gene_var_all <- apply(mat_nostim, 1, var)
+top2k        <- names(sort(gene_var_all, decreasing = TRUE))[1:2000]
+mat_subset   <- mat_nostim[top2k, ]
+
+vp_meta <- whole_nostim@meta.data %>%
+  select(
+    subject.subjectGuid,
+    subject.ageGroup,
+    subject.cmv,
+    subject.biologicalSex,
+    sample.daysSinceFirstVisit
+  )
+vp_meta <- vp_meta[colnames(mat_subset), ]
+
+form <- ~ (1|subject.subjectGuid) + (1|subject.ageGroup) +
+          (1|subject.cmv) + (1|subject.biologicalSex)
+
+vp <- fitExtractVarPartModel(mat_subset, form, vp_meta)
+plotVarPart(vp)
+```
+
+> For the 2,000 most variable genes, what is actually responsible for the variation we see?
+>
+> Each violin in the plot represents one source of variation, and its width shows how much that source explains across genes:
+>
+> - **`subject.subjectGuid` (individual identity):** Larger violin means most gene-to-gene variation is just people being different from each other.
+> - **`subject.ageGroup`:** How much of the variation is explained by being Young vs. Old.
+> - **`subject.cmv`:** How much is driven by CMV infection history.
+> - **`subject.biologicalSex`:** How much is driven by sex differences.
+> - **`Residuals`:** A substantial portion of gene expression variation isn't explained by any of the four factors tested — likely driven by visit-to-visit fluctuations, vaccination timing, or biology not captured by these variables alone.
+
+---
+
+# 3. Whole Blood RNA-seq — Ex Vivo Stimulation
+
+## 3.1 Dataset Size & Stimulation Balance
+
+```{r exvivo-dims}
+dim(whole_exvivo)
+table(whole_exvivo$geo.stimulation)
+```
+
+> This dataset has **985 samples** — more than the unstimulated set because each blood draw was split into four tubes, one per condition:
+>
+> - **Null:** No stimulus added — the control condition
+> - **LPS:** A bacterial cell wall component; triggers a strong innate immune response
+> - **SEB:** A toxin from Staph bacteria; activates T cells
+> - **Poly I:C:** Mimics a viral infection; triggers antiviral immune pathways
+>
+> The four conditions are nearly balanced (~245–249 samples each).
+
+---
+
+## 3.2 Sequencing Quality
+
+```{r exvivo-seq-quality}
+summary(whole_exvivo$nCount_RNA)
+
+hist(whole_exvivo$nCount_RNA, breaks = 50,
+     main = "Ex Vivo: Total Read Counts per Sample",
+     xlab = "nCount_RNA",
+     col  = "mediumpurple", border = "white")
+```
+
+> Sequencing depth is comparable to the unstimulated dataset; median ~3.5 million reads, consistent distribution, no outliers. The stimulation process did not degrade sample quality.
+
+---
+
+## 3.3 Does Stimulation Separate Samples?
+
+```{r exvivo-pca, cache=TRUE}
+DefaultAssay(whole_exvivo) <- "RNA"
+mat_exvivo  <- LayerData(whole_exvivo, layer = "X")
+
+gv_exvivo   <- apply(mat_exvivo, 1, var)
+top_exvivo  <- names(sort(gv_exvivo, decreasing = TRUE))[1:2000]
+mat_exvivo2 <- mat_exvivo[top_exvivo, ]
+
+pca_exvivo  <- prcomp(t(mat_exvivo2), scale. = TRUE)
+
+pca_df <- data.frame(
+  PC1       = pca_exvivo$x[, 1],
+  PC2       = pca_exvivo$x[, 2],
+  stim      = whole_exvivo$geo.stimulation,
+  age_group = whole_exvivo$subject.ageGroup
+)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = stim)) +
+  geom_point(alpha = 0.6, size = 1.8) +
+  labs(
+    title    = "Do Stimulation Conditions Separate in Gene Expression Space?",
+    subtitle = "Each dot is one sample; colored by what it was exposed to",
+    x = "PC1 (most variation)", y = "PC2 (second most variation)",
+    color = "Stimulation"
+  ) +
+  theme_minimal()
+```
+
+```{r exvivo-pca-age}
+ggplot(pca_df, aes(x = PC1, y = PC2, color = age_group)) +
+  geom_point(alpha = 0.6, size = 1.8) +
+  labs(
+    title    = "Does Age Group Show Structure After Stimulation?",
+    subtitle = "Same PCA, now colored by age group",
+    x = "PC1", y = "PC2",
+    color = "Age Group"
+  ) +
+  theme_minimal()
+```
+
+> **PCA** (Principal Component Analysis) is a way of taking thousands of gene measurements and compressing them into two axes that capture the most important patterns of difference between samples. Think of it as a map: samples that look similar genetically are placed near each other; samples that look very different are far apart.
+>
+> - **First plot (colored by stimulation):** The four stimulation conditions separate cleanly on the map. LPS and SEB (which both cause strong immune activation) cluster together on one side; the unstimulated Null samples sit apart; Poly I:C falls in between. This confirms the stimulations are working as expected and that stimulation type will dominate.
+> - **Second plot (colored by age group):** Asks whether after accounting for stimulation, do Young and Older Adults still show different patterns. This plot reveals whether there is residual age-related structure in the stimulated responses.
+
+---
+
+# 4. Plasma Proteomics (Olink)
+
+## 4.1 Data Structure
+
+```{r plasma-structure}
+cat("Dimensions (long format):", nrow(plasma), "rows x", ncol(plasma), "cols\n")
+cat("Unique proteins measured:", n_distinct(plasma$olink.assay), "\n")
+cat("Unique samples:", n_distinct(plasma$sample.sampleKitGuid), "\n")
+cat("Duplicate sample x protein rows:", sum(duplicated(plasma[, c("sample.sampleKitGuid", "olink.assay")])), "\n")
+```
+
+> The plasma data is originally in long format: instead of one row per sample with 1,473 protein columns, there is one row for each protein measured in each sample — so one blood draw produces 1,473 rows. Needs to be reshaped before we can use it alongside the RNA data. Duplicate rows exist because some samples were run across multiple batches.
+
+---
+
+## 4.2 Reshape to Wide Format
+
+```{r plasma-wide}
+plasma_wide <- plasma %>%
+  select(sample.sampleKitGuid, olink.assay, olink.NPX_norm) %>%
+  pivot_wider(
+    names_from  = olink.assay,
+    values_from = olink.NPX_norm,
+    values_fn   = mean
+  )
+
+cat("Wide format dimensions:", nrow(plasma_wide), "samples x", ncol(plasma_wide) - 1, "proteins\n")
+```
+
+> After reshaping, there is one row per sample and one column per protein — 867 samples × 1,473 proteins.
+
+---
+
+## 4.3 How Well Do the Datasets Overlap?
+
+```{r overlap}
+common_plas_nostim   <- intersect(plasma_wide$sample.sampleKitGuid, whole_nostim$sample.sampleKitGuid)
+common_plas_exvivo   <- intersect(plasma_wide$sample.sampleKitGuid, whole_exvivo$sample.sampleKitGuid)
+common_exvivo_nostim <- intersect(whole_nostim$sample.sampleKitGuid, whole_exvivo$sample.sampleKitGuid)
+
+cat("Plasma + RNA (nostim) matched samples:", length(common_plas_nostim), "\n")
+cat("Plasma + RNA (exvivo) matched samples:", length(common_plas_exvivo), "\n")
+cat("Nostim + Exvivo shared sample kits:   ", length(common_exvivo_nostim), "\n")
+cat("Plasma-only (no RNA match):           ", nrow(plasma_wide) - length(common_plas_nostim), "\n")
+cat("RNA-only (no plasma match):           ", ncol(whole_nostim) - length(common_plas_nostim), "\n")
+```
+
+> 835 out of 838 RNA-seq samples have a matching plasma sample. This is important because it means we can analyze gene expression and protein levels from the same blood draw.
+>
+> The small number of non-overlapping samples (32 plasma-only, 3 RNA-only) is likely due to occasional sample processing failures rather than participants dropping out.
+
+```{r unmatched-samples}
+subject_meta <- whole_nostim@meta.data %>%
+  select(
+    sample.sampleKitGuid, subject.subjectGuid, subject.ageGroup,
+    subject.biologicalSex, subject.cmv, subject.bmi,
+    subject.race, subject.ethnicity, subject.ageAtFirstDraw,
+    sample.subjectAgeAtDraw, sample.daysSinceFirstVisit, sample.visitName
+  ) %>%
+  distinct()
+
+unmatched_plasma <- plasma$sample.sampleKitGuid[
+  !plasma$sample.sampleKitGuid %in% whole_nostim$sample.sampleKitGuid
+]
+
+plasma %>%
+  filter(sample.sampleKitGuid %in% unmatched_plasma) %>%
+  select(sample.sampleKitGuid, subject.subjectGuid,
+         sample.visitName, subject.ageGroup) %>%
+  distinct() %>%
+  count(subject.ageGroup, sample.visitName) %>%
+  arrange(subject.ageGroup, sample.visitName)
+```
+
+> The 32 unmatched plasma samples are scattered across visit types and both age groups with no obvious pattern. Consistent with random processing failures rather than systematic loss of a particular subgroup.
+
+---
+
+## 4.4 Can We Trust All Protein Measurements?
+
+```{r lod-check}
+lod_summary <- plasma %>%
+  mutate(below_lod = olink.NPX_norm < olink.LOD_norm) %>%
+  group_by(olink.assay) %>%
+  summarise(pct_below_lod = mean(below_lod, na.rm = TRUE)) %>%
+  arrange(desc(pct_below_lod))
+
+cat("Proteins where >50% of measurements are below the detection threshold:", sum(lod_summary$pct_below_lod > 0.50), "\n")
+cat("Proteins where >30% of measurements are below the detection threshold:", sum(lod_summary$pct_below_lod > 0.30), "\n")
+cat("Proteins where <=10% of measurements are below the detection threshold:", sum(lod_summary$pct_below_lod <= 0.10), "\n")
+
+hist(lod_summary$pct_below_lod, breaks = 40,
+     main = "How Often Is Each Protein Below the Detection Limit?",
+     xlab = "Fraction of samples below detection threshold",
+     col  = "tomato", border = "white")
+```
+
+```{r lod-top}
+cat("\nProteins most often below the detection threshold:\n")
+head(lod_summary, 15)
+```
+
+> Every measuring instrument has a limit of detection (LOD) — a minimum level below which it can't reliably tell the difference between "a tiny amount" and "none at all." For 217 proteins in this dataset, more than 30% of samples fell below that threshold.
+>
+> This matters because the values reported for those samples aren't real measurements.
+>
+> - We could account for the censoring in the model — tell the model "for these samples, all we know is the protein level was below X" rather than using the number directly.
+
+---
+
+## 4.5 Is Data Missingness Concentrated in One Group?
+
+```{r missing-by-age}
+plasma_wide %>%
+  left_join(
+    subject_meta %>% select(sample.sampleKitGuid, subject.ageGroup) %>% distinct(),
+    by = "sample.sampleKitGuid"
+  ) %>%
+  filter(!is.na(subject.ageGroup)) %>%
+  group_by(subject.ageGroup) %>%
+  summarise(across(where(is.numeric), ~ mean(is.na(.)))) %>%
+  pivot_longer(-subject.ageGroup, names_to = "protein", values_to = "pct_missing") %>%
+  filter(pct_missing > 0.5) %>%
+  count(subject.ageGroup, name = "n_proteins_over_50pct_missing")
+```
+
+> Both age groups have exactly 9 proteins missing in more than 50% of their samples. This means protein missingness is not concentrated in one age group over the other. Means the protein most likely doesn't differently at depending on age group.
+
+---
+
+## 4.6 How Stable Are Protein Levels Within a Person Over Time?
+
+```{r protein-icc}
+protein_icc <- plasma |>
+  filter(!is.na(olink.NPX_norm)) |>
+  group_by(olink.assay) |>
+  filter(n() > 10) |>
+  ungroup() |>
+  group_by(olink.assay, subject.subjectGuid) |>
+  mutate(subj_mean = mean(olink.NPX_norm, na.rm = TRUE)) |>
+  ungroup() |>
+  group_by(olink.assay) |>
+  summarise(
+    var_between = var(subj_mean, na.rm = TRUE),
+    var_within  = mean((olink.NPX_norm - subj_mean)^2, na.rm = TRUE),
+    n_subjects  = n_distinct(subject.subjectGuid),
+    n_obs       = n(),
+    .groups = "drop"
+  ) |>
+  mutate(
+    icc = var_between / (var_between + var_within),
+    icc_flag_unreliable = icc < 0.75
+  ) |>
+  arrange(desc(icc))
+
+
+cat("Proteins that are highly stable within a person (ICC > 0.7):", sum(protein_icc$icc > 0.7, na.rm = TRUE), "\n")
+cat("Proteins that fluctuate a lot within a person (ICC < 0.3):", sum(protein_icc$icc < 0.3, na.rm = TRUE), "\n")
+
+hist(protein_icc$icc, breaks = 40,
+     main = "Are Protein Levels Stable Within a Person Over Time?",
+     xlab = "ICC (0 = all fluctuation, 1 = completely stable)",
+     col  = "steelblue", border = "white")
+
+cat("\nTop 10 most stable proteins (each person has a consistent personal level):\n")
+head(protein_icc, 10)
+
+cat("\nTop 10 most variable proteins (levels shift a lot visit to visit):\n")
+tail(protein_icc, 10)
+```
+
+
+```{r}
+selected_proteins <- c("IL6", "CXCL8", "IL18", "TNF", "CXCL10", "CCL2",
+                       "GZMA", "GZMB", "KLRD1", "CD244", "TNFRSF13B", 
+                       "CXCL13", "CD163", "CCL7", "VEGFA", "MMP12", 
+                       "GDF15", "CXCL9")
+
+protein_icc |>
+  filter(olink.assay %in% selected_proteins) |>
+  arrange(icc) |>
+  select(olink.assay, var_between, var_within, icc, icc_flag_unreliable) |>
+  print(n = Inf)
+
+cat("\nICC distribution across all proteins:\n")
+summary(protein_icc$icc)
+
+cat("\nICC < 0.75:", sum(protein_icc$icc < 0.75, na.rm = TRUE), "proteins\n")
+cat("ICC < 0.50:", sum(protein_icc$icc < 0.50, na.rm = TRUE), "proteins\n")
+cat("ICC > 0.75:", sum(protein_icc$icc > 0.75, na.rm = TRUE), "proteins\n")
+```
+
+> The ICC (Intraclass Correlation Coefficient): Is the variation in this protein mostly about who someone is, or about when the measurement was taken?
+>
+> - An ICC close to **1** means a protein is like blood type.
+> - An ICC close to **0** means a protein fluctuates a lot from visit to visit within the same person.
+
+> Panel-wide picture:
+>
+> - Median ICC of 0.65 across 1,472 proteins
+> - 445 of 1,472 proteins (30%) exceed the 0.75 threshold
+> - 477 proteins (32%) fall below ICC 0.50
+
+> 18 selected proteins split into two groups:
+> - ICC ≥ 0.75 (6 proteins): TNFRSF13B, CD163, IL18, MMP12, GDF15, KLRD1
+> - ICC 0.60–0.75 (6 proteins): IL6, CXCL8, CD244, CCL7, CCL2, VEGFA
+> - ICC < 0.60 (6 proteins): TNF, GZMB, CXCL13, CXCL10, CXCL9, GZMA — within-subject variance is larger than between-subject variance for these proteins, meaning more of their variability is within individuals across timepoints than between individuals
+
+---
+
+# 5. Bringing the Datasets Together
+
+## 5.1 Final Sample Counts
+
+```{r final-counts}
+cat("Total plasma samples:                 ", nrow(plasma_wide), "\n")
+cat("Total RNA-seq samples (unstimulated): ", ncol(whole_nostim), "\n")
+cat("Samples with both plasma AND RNA:     ", length(common_plas_nostim), "\n")
+cat("Plasma only (no RNA):                 ", nrow(plasma_wide) - length(common_plas_nostim), "\n")
+cat("RNA only (no plasma):                 ", ncol(whole_nostim) - length(common_plas_nostim), "\n")
+
+n_complete_subjects <- subject_meta %>%
+  count(subject.subjectGuid) %>%
+  filter(n == max(n)) %>%
+  nrow()
+cat("Subjects with maximum number of visits:", n_complete_subjects, "\n")
+```
+
+---
+
+## 5.2 How Many Study Events Did Each Person Complete?
+
+```{r event-coverage}
+meta %>%
+  filter(include_in_model) %>%
+  group_by(subject.subjectGuid) %>%
+  summarise(events_present = n_distinct(event), .groups = "drop") %>%
+  count(events_present) %>%
+  rename(n_subjects = n)
+```
+
+> The study had three main event blocks (Flu Year 1, Flu Year 2, Immune Variation). 80 out of 95 subjects have data from all three. Only 15 subjects are missing one or two events.
+
+---
+
+# 6. Summary:
+
+| What we found | What it means for the model |
+|:---|:---|
+| 95 out of 96 subjects have 2 or more visits | Each person has enough repeated measurements that the model can learn their individual immune "baseline" and separate it from group-level patterns |
+| CMV infection is more common in Older Adults (54% vs 36%) | If we don't include CMV in the model, apparent age effects may actually be CMV effects in disguise. CMV must be a covariate. |
+| CMV-positive young women had more dropout | The people who left the study aren't a random sample — the model should assume their dropout is related to things we can observe (CMV, sex), not purely accidental |
+| Visits are clustered around events, not evenly spaced | Time in the model should be "day within event" (0, 7, or 90) nested inside "which event" — not raw days since enrollment |
+| 82 stand-alone samples have no event context | These should be excluded from the model or treated as a separate category |
+| 217 proteins are often undetectable | A decision is needed: drop these proteins, or tell the model they're censored (known to be below a threshold) rather than treating the recorded number as a real measurement |
+| 835 of 838 RNA samples have matching protein data | A joint model using both data types is feasible with minimal data loss |
+| Protein stability (ICC) varies widely | Stable proteins need a per-person baseline adjustment; fluctuating proteins need time-sensitive modeling |
+| Stimulation condition dominates ex vivo gene expression | The stimulated dataset must model stimulation condition as a primary factor before any age or CMV effects can be seen |
+
