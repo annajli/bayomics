@@ -1,0 +1,36 @@
+from,to,constraint,contrast,pathway,celltype_L3,nes,fdr,expected_direction,gene_set_size,citation
+cmv.igg_serology_interpretation,pb.cd56bright_nk_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,CD56bright NK cell,2.023,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.cm_cd8_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,CM CD8 T cell,1.862,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.core_cd14_monocyte_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Core CD14 monocyte,2.093,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.core_naive_cd4_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Core naive CD4 T cell,1.654,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.gzmb_cd27_em_cd4_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,GZMB- CD27+ EM CD4 T cell,1.99,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.gzmb_cd27_em_cd4_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,GZMB- CD27- EM CD4 T cell,1.636,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.gzmk_cd56dim_nk_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,GZMK+ CD56dim NK cell,1.87,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.gzmk_memory_cd4_treg_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,GZMK+ memory CD4 Treg,1.787,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_cd16_monocyte_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ CD16 monocyte,1.695,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_mait_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ MAIT,2.552,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_memory_cd8_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ memory CD8 T cell,1.764,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_naive_cd8_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ naive CD8 T cell,1.999,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.proliferating_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Proliferating T cell,1.897,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.cdc1_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,cDC1,1.931,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.pdc_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,pDC,2.015,0.0,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.klrf1_effector_vd1_gdt_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,KLRF1+ effector Vd1 gdT,1.578,0.001059,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.asdc_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ASDC,1.608,0.001366,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_cdc2_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ cDC2,1.696,0.001869,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.hla_drhi_cdc2_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,HLA-DRhi cDC2,1.568,0.003604,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.gzmk_cd56dim_nk_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,GZMK- CD56dim NK cell,1.583,0.004494,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.core_naive_cd8_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Core naive CD8 T cell,1.619,0.005576,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.cd8aa_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,CD8aa,1.551,0.005814,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_cd14_monocyte_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ CD14 monocyte,1.429,0.006849,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.intermediate_monocyte_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Intermediate monocyte,1.425,0.009238,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.cm_cd4_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,CM CD4 T cell,1.519,0.0102,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_naive_b_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ naive B cell,1.43,0.01196,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.isg_memory_cd4_t_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,ISG+ memory CD4 T cell,1.387,0.01202,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.naive_vd1_gdt_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Naive Vd1 gdT,1.471,0.01507,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.baeomap_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,BaEoMaP cell,1.341,0.03248,up,200,Sylwester 2005 PMID:16147978
+cmv.igg_serology_interpretation,pb.proliferating_nk_cell_ifn_gamma,whitelist,Positive vs Negative,ifn_gamma,Proliferating NK cell,1.367,0.03286,up,200,Sylwester 2005 PMID:16147978
+subject.ageGroup,pb.activated_memory_b_cell_tnfa_nfkb,whitelist,Older Adult vs Younger Adult,tnfa_nfkb,Activated memory B cell,1.909,0.0,up,200,Franceschi 2000 PMID:10911963
+subject.ageGroup,pb.il1b_cd14_monocyte_tnfa_nfkb,whitelist,Older Adult vs Younger Adult,tnfa_nfkb,IL1B+ CD14 monocyte,1.509,0.03557,up,200,Franceschi 2000 PMID:10911963
+subject.biologicalSex,pb.isg_cdc2_ifn_alpha,whitelist,Male vs Female,ifn_alpha,ISG+ cDC2,-1.788,0.00464,down,97,Griesbeck 2015 PMID:26519527; Klein & Flanagan 2016 PMID:27546235
+subject.biologicalSex,pb.sox4_vd1_gdt_ifn_alpha,whitelist,Male vs Female,ifn_alpha,SOX4+ Vd1 gdT,-1.434,0.03846,down,97,Griesbeck 2015 PMID:26519527; Klein & Flanagan 2016 PMID:27546235
+subject.biologicalSex,pb.naive_vd1_gdt_ifn_alpha,whitelist,Male vs Female,ifn_alpha,Naive Vd1 gdT,-1.473,0.04603,down,97,Griesbeck 2015 PMID:26519527; Klein & Flanagan 2016 PMID:27546235
