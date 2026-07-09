@@ -1,0 +1,393 @@
+---
+title: "Flu Vaccine Serology & HAI Data Cleaning"
+output: html_document
+date: "2026-06-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(naniar)
+```
+
+
+```{r}
+flu_sero <- read.csv("~/Desktop/Capstone Data/Flu Vaccine Serology and HAI/sound-life_flu_serology_single.csv")
+flu_hai  <- read.csv("~/Desktop/Capstone Data/Flu Vaccine Serology and HAI/sound-life_flu_hai_single.csv")
+flu_meta <- read.csv("~/Desktop/Capstone Data/Flu Vaccine Serology and HAI/sound-life_flu-vaccine_antigen_metadata.csv")
+```
+
+```{r}
+glimpse(flu_sero)
+glimpse(flu_hai)
+
+names(flu_sero)
+names(flu_hai)
+```
+
+
+```{r}
+flu_sero |> count(sample.daysSinceFirstVisit, vaccine.year)
+flu_hai  |> count(sample.daysSinceFirstVisit, vaccine.year)
+
+# antigen panels
+flu_sero |> count(msd.antigenName)
+flu_hai  |> count(msd.antigenName)
+
+summary(flu_sero$msd.concPercentCV)
+summary(flu_hai$msd.signalNormPercentCV)
+
+# subject counts
+n_distinct(flu_sero$subject.subjectGuid)
+n_distinct(flu_hai$subject.subjectGuid)
+```
+
+```{r}
+# forcing guids to character
+flu_sero <- flu_sero |> mutate(across(contains("Guid"), as.character))
+flu_hai  <- flu_hai  |> mutate(across(contains("Guid"), as.character))
+```
+
+
+```{r}
+# filter to flu year 1
+sero_y1 <- flu_sero |>
+  filter(
+    vaccine.year == "2020-2021",
+    sample.daysSinceFirstVisit %in% c(0, 6, 7, 8, 9)
+  )
+
+cat("Serology Year 1 rows:", nrow(sero_y1), "\n")
+cat("Subjects:", n_distinct(sero_y1$subject.subjectGuid), "\n")
+```
+
+```{r}
+# CV greater than 20%
+sero_y1 <- sero_y1 |>
+  mutate(igg_cv_flag = case_when(
+    is.na(msd.concPercentCV) ~ NA,
+    msd.concPercentCV > 20   ~ TRUE,
+    TRUE                    ~ FALSE
+  ))
+
+cat("IgG CV flags (>20%):", sum(sero_y1$igg_cv_flag == TRUE, na.rm = TRUE), "\n")
+```
+
+
+```{r}
+sero_y1 |> 
+  filter(igg_cv_flag == TRUE)
+```
+
+```{r}
+# addressing multiple post-vaccine timepoints per subject x antigen by keeping earliest timepoint
+
+sero_pre <- sero_y1 |> filter(sample.daysSinceFirstVisit == 0)
+
+sero_post <- sero_y1 |>
+  filter(sample.daysSinceFirstVisit != 0) |>
+  group_by(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName) |>
+  arrange(sample.daysSinceFirstVisit) |>
+  slice(1) |>
+  ungroup()
+
+cat("Pre-vaccine subjects:", n_distinct(sero_pre$subject.subjectGuid), "\n")
+cat("Post-vaccine subjects:", n_distinct(sero_post$subject.subjectGuid), "\n")
+```
+
+
+```{r}
+# Check no duplicate subject x antigen before pivot
+sero_pre_clean <- sero_pre_clean |>
+  distinct(subject.subjectGuid,
+           sample.sampleKitGuid,
+           .keep_all = TRUE)
+
+sero_pre_clean <- sero_pre |>
+  group_by(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName) |>
+  summarise(
+    msd.concMean = first(msd.concMean),
+    igg_cv_flag  = first(igg_cv_flag),
+    .groups = "drop"
+  )
+
+sero_post_clean <- sero_post |>
+  distinct(subject.subjectGuid,
+           sample.sampleKitGuid,
+           msd.antigenName,
+           .keep_all = TRUE)
+
+sero_post_clean <- sero_post |>
+  group_by(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName) |>
+  summarise(
+    msd.concMean = first(msd.concMean),
+    igg_cv_flag  = first(igg_cv_flag),
+    sample.daysSinceFirstVisit = first(sample.daysSinceFirstVisit),
+    .groups = "drop"
+  )
+
+
+```
+
+
+```{r}
+sero_post |>
+  filter(subject.subjectGuid == "BR2041",
+         msd.antigenName == "B/Phuket")
+```
+
+
+```{r}
+sero_pre_wide <- sero_pre_clean |>
+  pivot_wider(
+    id_cols = c(subject.subjectGuid, sample.sampleKitGuid),
+    names_from = msd.antigenName,
+    values_from = c(msd.concMean, igg_cv_flag),
+    names_glue = "{.value}_{msd.antigenName}",
+    values_fn = first
+  ) |>
+  clean_names() |>
+  rename_with(~ paste0("val.igg_d0_", str_remove(.x, "msd_conc_mean_")),
+              .cols = starts_with("msd_conc_mean_")) |>
+  rename_with(~ paste0("val.igg_cv_flag_d0_", str_remove(.x, "igg_cv_flag_")),
+              .cols = starts_with("igg_cv_flag_"))
+
+sero_post_wide <- sero_post_clean |>
+  pivot_wider(
+    id_cols = c(subject.subjectGuid, sample.sampleKitGuid),
+    names_from = msd.antigenName,
+    values_from = c(msd.concMean, igg_cv_flag),
+    names_glue = "{.value}_{msd.antigenName}",
+    values_fn = first
+  ) |>
+  clean_names() |>
+  rename_with(~ paste0("val.igg_d7_", str_remove(.x, "msd_conc_mean_")),
+              .cols = starts_with("msd_conc_mean_")) |>
+  rename_with(~ paste0("val.igg_cv_flag_d7_", str_remove(.x, "igg_cv_flag_")),
+              .cols = starts_with("igg_cv_flag_"))
+
+cat("sero_pre_wide rows: ", nrow(sero_pre_wide), "\n")
+cat("sero_post_wide rows:", nrow(sero_post_wide), "\n")
+```
+
+
+```{r}
+# joining pre and post on subject
+sero_wide <- sero_pre_wide |>
+  full_join(
+    sero_post_wide,
+    by = c("subject_subject_guid", "sample_sample_kit_guid")
+  )
+
+# cleaning antigen names
+antigens_sero <- c("a_brisbane","a_hong_kong","a_michigan",
+                   "a_victoria","b_colorado","b_phuket","b_washington")
+
+for (ag in antigens_sero) {
+
+  d0_col <- paste0("val_igg_d0_", ag)
+  d7_col <- paste0("val_igg_d7_", ag)
+
+  d0_col <- str_replace_all(d0_col, "\\.", "_")
+  d7_col <- str_replace_all(d7_col, "\\.", "_")
+
+  fc_col <- paste0("val.igg_fc_", ag)
+  sc_col <- paste0("val.igg_seroconvert_", ag)
+  hi_col <- paste0("val.igg_d0_hightiter_flag_", ag)
+
+  if (all(c(d0_col, d7_col) %in% names(sero_wide))) {
+
+    sero_wide <- sero_wide |>
+      mutate(
+        !!fc_col := if_else(
+          is.na(.data[[d0_col]]) | .data[[d0_col]] == 0,
+          NA_real_,
+          .data[[d7_col]] / .data[[d0_col]]
+        ),
+
+        !!sc_col := case_when(
+          is.na(.data[[fc_col]]) ~ NA,
+          .data[[fc_col]] >= 4   ~ TRUE,
+          TRUE                  ~ FALSE
+        ),
+
+        !!hi_col := if_else(
+          is.na(.data[[d0_col]]),
+          NA,
+          !is.na(.data[[d0_col]]) &
+          .data[[d0_col]] > quantile(.data[[d0_col]], 0.9, na.rm = TRUE)
+        )
+      )
+  }
+}
+
+cat("\nSerology wide dimensions:", nrow(sero_wide), "x", ncol(sero_wide), "\n")
+```
+
+
+
+```{r}
+# HAI
+
+# filtering to flu year 1
+hai_y1 <- flu_hai |>
+  filter(
+    vaccine.year == "2019-2020",
+    sample.daysSinceFirstVisit %in% c(0, 7, 8, 9, 10),
+    msd.antigenName != "BSA"
+  )
+
+cat("\nHAI Year 1 rows:", nrow(hai_y1), "\n")
+cat("Subjects:", n_distinct(hai_y1$subject.subjectGuid), "\n")
+cat("Antigens:", n_distinct(hai_y1$msd.antigenName), "\n")
+```
+
+```{r}
+# CV greater than 20%
+hai_y1 <- hai_y1 |>
+  mutate(hai_cv_flag = case_when(
+    is.na(msd.signalNormPercentCV) ~ NA,
+    msd.signalNormPercentCV > 20   ~ TRUE,
+    TRUE                          ~ FALSE
+  ))
+
+cat("HAI CV flags (>20%):", sum(hai_y1$hai_cv_flag == TRUE, na.rm = TRUE), "\n")
+```
+
+
+```{r}
+# addressing multiple post-vaccine timepoints
+hai_pre <- hai_y1 |> filter(sample.daysSinceFirstVisit == 0)
+
+hai_post <- hai_y1 |>
+  filter(sample.daysSinceFirstVisit != 0) |>
+  group_by(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName) |>
+  arrange(sample.daysSinceFirstVisit) |>
+  slice(1) |>
+  ungroup()
+```
+
+
+```{r}
+# pivoting to wide
+
+# hai pre
+hai_pre <- hai_pre |> distinct(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName, .keep_all = TRUE)
+
+hai_pre_wide <- hai_pre |>
+  pivot_wider(
+    id_cols = c(subject.subjectGuid, sample.sampleKitGuid),
+    names_from = msd.antigenName,
+    values_from = c(msd.percentNormInhibition, hai_cv_flag),
+    names_glue = "{.value}_{msd.antigenName}",
+    values_fn = first
+  ) |>
+  clean_names() |>
+  rename_with(~ paste0("val.hai_d0_", str_remove(.x, "msd_percent_norm_inhibition_")),
+              .cols = starts_with("msd_percent_norm_inhibition_")) |>
+  rename_with(~ paste0("val.hai_cv_flag_d0_", str_remove(.x, "hai_cv_flag_")),
+              .cols = starts_with("hai_cv_flag_"))
+
+# hai post
+hai_post <- hai_post |> distinct(subject.subjectGuid, sample.sampleKitGuid, msd.antigenName, .keep_all = TRUE)
+
+hai_post_wide <- hai_post |>
+  pivot_wider(
+    id_cols = c(subject.subjectGuid, sample.sampleKitGuid),
+    names_from = msd.antigenName,
+    values_from = c(msd.percentNormInhibition, hai_cv_flag),
+    names_glue = "{.value}_{msd.antigenName}",
+    values_fn = first
+  ) |>
+  clean_names() |>
+  rename_with(~ paste0("val.hai_d7_", str_remove(.x, "msd_percent_norm_inhibition_")),
+              .cols = starts_with("msd_percent_norm_inhibition_")) |>
+  rename_with(~ paste0("val.hai_cv_flag_d7_", str_remove(.x, "hai_cv_flag_")),
+              .cols = starts_with("hai_cv_flag_"))
+
+hai_wide <- hai_pre_wide |>
+  full_join(
+    hai_post_wide,
+    by = c("subject_subject_guid", "sample_sample_kit_guid")
+  )
+
+cat("\nHAI wide dimensions:", nrow(hai_wide), "x", ncol(hai_wide), "\n")
+```
+
+
+```{r}
+# joining serology and hai
+validation <- sero_wide |>
+  full_join(
+    hai_wide,
+    by = c("subject_subject_guid", "sample_sample_kit_guid")
+  ) |>
+  distinct(subject_subject_guid, sample_sample_kit_guid, .keep_all = TRUE)
+
+validation_dedup <- validation |>
+  group_by(subject_subject_guid) |>
+  summarise(
+    sample_sample_kit_guid = first(sample_sample_kit_guid),
+
+    across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
+    across(where(is.logical), ~ any(.x, na.rm = TRUE)),
+
+    .groups = "drop"
+  )
+
+cat("\nValidation join dimensions:", nrow(validation), "x", ncol(validation), "\n")
+cat("Subjects in final validation set:", n_distinct(validation$subject_subject_guid), "\n")
+```
+
+
+```{r}
+cat("\n=== JOIN KEY CHECKS ===\n")
+cat("Rows:", nrow(validation), "\n")
+cat("Subjects:", n_distinct(validation_dedup$subject_subject_guid), "\n")
+
+cat("\nMissing subjectGuid:", sum(is.na(validation_dedup$subject_subject_guid)), "\n")
+cat("Missing sampleKitGuid:", sum(is.na(validation_dedup$sample_sample_kit_guid)), "\n")
+cat("Duplicate subjects:", sum(duplicated(validation_dedup$subject_subject_guid)), "\n")
+
+# Missingness on key validation targets
+val_target_cols <- names(validation_dedup)[str_starts(names(validation), "val")]
+
+miss_val <- naniar::miss_var_summary(validation_dedup |> select(all_of(val_target_cols)))
+print(miss_val, n = Inf)
+```
+
+
+```{r}
+# dropping columns that are 100% missing
+cols_to_drop <- miss_summary |>
+  filter(pct_miss == 100) |>
+  pull(variable)
+
+cat("Dropping 100% missing columns:", paste(cols_to_drop, collapse = ", "), "\n")
+
+baseline <- baseline |> select(-any_of(cols_to_drop))
+```
+
+
+```{r}
+write.csv(
+  validation,
+  "~/Desktop/Capstone Data/Flu Vaccine Serology and HAI/flu_response_validation.csv",
+  row.names = FALSE
+)
+
+cat("\nSaved: flu_response_validation.csv\n")
+cat("Final dimensions:", nrow(validation), "x", ncol(validation), "\n")
+```
+
+
+
+
+
+
+
+

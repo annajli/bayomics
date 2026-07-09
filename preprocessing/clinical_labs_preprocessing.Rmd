@@ -1,0 +1,331 @@
+---
+title: "Clinical Labs and Metadata Data Cleaning"
+output: html_document
+date: "2026-06-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+clinical <- read.csv("~/Desktop/Capstone Data/Clinical labs and metadata/sound_life_clinical_lab_descriptors.csv")
+
+labs_meta <- read.csv("~/Desktop/Capstone Data/Clinical labs and metadata/sound_life_labs_metadata.csv")
+```
+
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(naniar)
+
+glimpse(clinical)
+glimpse(labs_meta)
+```
+
+
+```{r}
+# force guids to character so R never coerces them to numeric
+labs_meta <- labs_meta |>
+  mutate(across(contains("Guid"), as.character),
+         across(contains("guid"), as.character))
+
+# standardize column names
+labs_meta <- labs_meta |> clean_names()
+clinical  <- clinical  |> clean_names()
+
+names(labs_meta)
+names(clinical)
+```
+
+```{r}
+unique(labs_meta$subject_age_group)
+
+labs_meta |>
+  count(subject_age_group, sort = TRUE)
+```
+
+
+```{r}
+# identifying key columns
+SUBJ_KEY   <- "subject_subject_guid"
+SAMPLE_KEY <- "sample_sample_kit_guid"
+DAYS_COL   <- "sample_days_since_first_visit"
+```
+
+
+```{r}
+# Baseline filter (Flu Year 1, Day 0)
+
+baseline <- labs_meta |>
+  filter(sample_days_since_first_visit == 0)
+
+# if a flu year column exists, restrict to Year 1
+if ("sample_flu_year" %in% names(baseline)) {
+  baseline <- baseline |> filter(sample_flu_year == 1)}
+
+cat("Baseline rows before dedup:", nrow(baseline), "\n")
+
+# resolve duplicates, keeping rows with fewest NAs
+baseline <- baseline |>
+  group_by(.data[[SUBJ_KEY]]) |>
+  mutate(.na_count = rowSums(is.na(across(everything())))) |>
+  arrange(.na_count, .data[[SAMPLE_KEY]]) |>
+  slice(1) |>
+  ungroup() |>
+  select(-.na_count)
+
+cat("Baseline n after dedup:", nrow(baseline), "\n")
+
+# one row per subject and per sample
+stopifnot("Duplicate sampleKitGuid" = !anyDuplicated(baseline[[SAMPLE_KEY]]))
+stopifnot("Duplicate subjectGuid"   = !anyDuplicated(baseline[[SUBJ_KEY]]))
+```
+
+
+```{r}
+# checking for nulls
+cat("Null sampleKitGuid:", sum(is.na(baseline[[SAMPLE_KEY]])), "\n")
+cat("Null subjectGuid:  ", sum(is.na(baseline[[SUBJ_KEY]])),   "\n")
+
+# cast all numeric lab columns
+categorical_lab_cols <- c("cmv_igg_serology_interpretation",
+                           "infl_rf_iga_interpretation",
+                           "infl_rf_igm_interpretation")
+
+numeric_lab_cols <- names(baseline)[16:ncol(baseline)]
+numeric_lab_cols <- setdiff(numeric_lab_cols, categorical_lab_cols)
+
+baseline <- baseline |>
+  mutate(across(all_of(numeric_lab_cols), as.numeric))
+
+# missingness summary
+miss_summary <- miss_var_summary(baseline |> select(all_of(numeric_lab_cols)))
+print(miss_summary, n = 50)
+
+# flag any column >20% missing as an exclude candidate
+exclude_candidates <- miss_summary |>
+  filter(pct_miss > 20) |>
+  pull(variable)
+
+cat("Exclude candidates (>20% missing):", paste(exclude_candidates, collapse = ", "), "\n")
+```
+
+
+
+```{r}
+# age_group - cast to ordered factor
+baseline <- baseline |>
+  mutate(
+    subject_age_group = factor(
+      str_trim(subject_age_group),
+      levels = c("Young Adult", "Older Adult")
+    )
+  )
+
+tabyl(baseline, subject_age_group)
+
+# sex - cast to factor
+baseline <- baseline |>
+  mutate(subject_biological_sex = factor(
+    str_to_title(str_trim(subject_biological_sex)),
+    levels = c("Male", "Female")
+  ))
+
+# race & ethnicity - cast to factor
+baseline <- baseline |>
+  mutate(
+    subject_race      = factor(str_trim(subject_race)),
+    subject_ethnicity = factor(str_trim(subject_ethnicity))
+  )
+
+# CMV - recode to clean factor; equivocal flagged
+baseline <- baseline |>
+  mutate(
+    cmv_status = case_when(
+      str_to_lower(str_trim(cmv_igg_serology_interpretation)) %in%
+        c("positive", "pos", "reactive")               ~ "Positive",
+      str_to_lower(str_trim(cmv_igg_serology_interpretation)) %in%
+        c("negative", "neg", "non-reactive")           ~ "Negative",
+      str_to_lower(str_trim(cmv_igg_serology_interpretation)) %in%
+        c("equivocal", "indeterminate", "borderline")  ~ "Equivocal",
+      is.na(cmv_igg_serology_interpretation)           ~ NA_character_,
+      TRUE                                             ~ "Other"
+    ),
+    cmv_status = factor(cmv_status,
+                        levels = c("Negative", "Positive", "Equivocal", "Other")),
+    cmv_status_flag_equivocal = (cmv_status == "Equivocal") %in% TRUE)
+
+tabyl(baseline, cmv_status)
+
+# NLR - neutrophil / lymphocyte ratio
+baseline <- baseline |>
+  mutate(
+    clinical_nlr = if_else(
+      bc_lymphocyte_count == 0 | is.na(bc_lymphocyte_count),
+      NA_real_,
+      bc_neutrophil_count / bc_lymphocyte_count
+    ),
+    clinical_nlr_flag_undefined = (!is.na(bc_lymphocyte_count) & bc_lymphocyte_count == 0)
+  )
+
+cat("NLR — undefined (zero denominator):", 
+    sum(baseline$clinical_nlr_flag_undefined, na.rm = TRUE), "\n")
+
+# height and weight
+med_h <- median(baseline$am_height, na.rm = TRUE)
+med_w <- median(baseline$am_weight, na.rm = TRUE)
+
+if (!is.na(med_h) && med_h < 100) {
+  message("Height looks like inches — converting to cm")
+  baseline <- baseline |> mutate(am_height = am_height * 2.54)
+}
+if (!is.na(med_w) && med_w > 200) {
+  message("Weight looks like lbs — converting to kg")
+  baseline <- baseline |> mutate(am_weight = am_weight / 2.205)
+}
+
+```
+
+
+```{r}
+summary(baseline$bc_neutrophil_count)
+summary(baseline$bc_lymphocyte_count)
+summary(baseline$bc_wbc)
+```
+
+
+```{r}
+plausibility_rules <- list(
+  
+  # CBC
+  list(col = "bc_neutrophil_count", lo = 500,  hi = 20000),
+  list(col = "bc_lymphocyte_count", lo = 300,  hi = 10000),
+  list(col = "bc_wbc",              lo = 1,    hi = 50),
+
+  # Chemistry
+  list(col = "chem_glucose",          lo = 30, hi = 600),
+
+  # Lipids
+  list(col = "lip_cholesterol_total", lo = 50, hi = 500),
+
+  # Anthropometrics
+  list(col = "am_bmi",    lo = 10,  hi = 80),
+  list(col = "am_height", lo = 100, hi = 230),
+  list(col = "am_weight", lo = 30,  hi = 300)
+)
+
+for (rule in plausibility_rules) {
+  col  <- rule$col
+  flag <- paste0(col, "_flag_implausible")
+  if (col %in% names(baseline)) {
+    baseline <- baseline |>
+      mutate(!!flag := case_when(
+        is.na(.data[[col]])                              ~ NA,
+        .data[[col]] < rule$lo | .data[[col]] > rule$hi ~ TRUE,
+        TRUE                                             ~ FALSE
+      ))
+    n_flagged <- sum(baseline[[flag]] == TRUE, na.rm = TRUE)
+    if (n_flagged > 0) cat(col, "—", n_flagged, "implausible value(s) flagged\n")
+  }
+}
+```
+
+
+```{r}
+# rename lab columns with modality prefixes to match output contract
+baseline <- baseline |>
+  rename_with(~ paste0("clinical.", .x), .cols = all_of(numeric_lab_cols)) |>
+  rename_with(~ paste0("clinical.", .x), .cols = starts_with("clinical_nlr"))
+
+# separate flag columns to move them last
+flag_cols <- names(baseline)[
+  str_detect(
+    names(baseline),
+    "_flag_(implausible|undefined|equivocal)$"
+  )
+]
+
+non_flag_cols <- setdiff(names(baseline), flag_cols)
+
+clinical_baseline_wide <- baseline |>
+  select(all_of(non_flag_cols), all_of(flag_cols))
+```
+
+
+
+```{r}
+# Merge-readiness check
+
+numeric_lab_cols <- names(baseline)[str_starts(names(baseline), "clinical\\.")]
+
+# 1. Join keys — must be non-null and unique
+cat("=== JOIN KEY CHECKS ===\n")
+cat("Null sampleKitGuid:", sum(is.na(baseline[[SAMPLE_KEY]])), "\n")
+cat("Null subjectGuid:  ", sum(is.na(baseline[[SUBJ_KEY]])), "\n")
+cat("Duplicate sampleKitGuid:", sum(duplicated(baseline[[SAMPLE_KEY]])), "\n")
+cat("Duplicate subjectGuid:  ", sum(duplicated(baseline[[SUBJ_KEY]])), "\n")
+cat("Total baseline subjects:", nrow(baseline), "\n")
+
+# 2. All lab columns are numeric (not character)
+cat("\n=== COLUMN TYPE CHECK ===\n")
+baseline |>
+  select(all_of(numeric_lab_cols)) |>
+  summarise(across(everything(), ~ class(.x))) |>
+  pivot_longer(everything(), names_to = "column", values_to = "type") |>
+  filter(type != "numeric") |>
+  print()
+
+# 3. Missingness summary — which columns are >20% missing
+cat("\n=== MISSINGNESS (lab columns only) ===\n")
+print(miss_summary, n = Inf)
+
+# 4. Quick summary of exclude candidates
+cat("\nExclude candidates (>50% missing):\n")
+cat(paste(exclude_candidates, collapse = "\n"), "\n")
+
+# 5. Row count
+cat("\n=== BASELINE DIMENSIONS ===\n")
+cat("Rows:", nrow(baseline), "\n")
+cat("Cols:", ncol(baseline), "\n")
+```
+
+
+```{r}
+# dropping 100% empty variables
+empty_cols <- names(baseline)[
+  colSums(!is.na(baseline)) == 0
+]
+
+cat(
+  "Removing completely empty columns:\n",
+  paste(empty_cols, collapse = "\n"),
+  "\n"
+)
+
+baseline <- baseline |>
+  select(-all_of(empty_cols))
+```
+
+
+```{r}
+write.csv(
+  baseline,
+  "~/Desktop/Capstone Data/clinical_baseline_wide.csv",
+  row.names = FALSE
+)
+
+cat("clinical_baseline_wide.csv saved\n")
+cat("Final dimensions:", nrow(baseline), "rows x", ncol(baseline), "cols\n")
+```
+
+
+
+
+
+
+
+
+
