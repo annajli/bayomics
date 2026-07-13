@@ -365,7 +365,7 @@ cat(sprintf(&quot;Network: %s (seed=%d)\n&quot;, NETWORK_ID, SEED))</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Roots: %s\n&quot;, paste(ROOTS, collapse = &quot;, &quot;)))</code></pre>
 <pre><code>## Roots: age_group, sex, cmv</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Continuous nodes: %d\n&quot;, length(CONTINUOUS_MAP)))</code></pre>
-<pre><code>## Continuous nodes: 46</code></pre>
+<pre><code>## Continuous nodes: 44</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Log-transform: %s\n&quot;, paste(LOG_TRANSFORM, collapse = &quot;, &quot;)))</code></pre>
 <pre><code>## Log-transform: crp, esr, alt, ast, triglycerides, glucose</code></pre>
 </div>
@@ -453,7 +453,7 @@ bn_df &lt;- bn_df %&gt;%
 
 cat(sprintf(&quot;Selected %d columns (aliases): %s\n&quot;,
             ncol(bn_df), paste(names(bn_df), collapse = &quot;, &quot;)))</code></pre>
-<pre><code>## Selected 49 columns (aliases): age_group, sex, cmv, bmi, height, weight, basophils, eosinophils, hematocrit, hemoglobin, lymphocytes, mch, mchc, mcv, monocytes, mpv, neutrophils, perc_basophils, perc_eosinophils, perc_lymphocytes, perc_monocytes, perc_neutrophils, platelets, rdw, rbc, wbc, albumin, alk_phos, alt, ast, bun, calcium, chloride, co2, creatinine, globulin, glucose, potassium, protein, sodium, t_bili, esr, crp, hdl_ratio, hdl, ldl, non_hdl, total_chol, triglycerides</code></pre>
+<pre><code>## Selected 47 columns (aliases): age_group, sex, cmv, weight, basophils, eosinophils, hematocrit, hemoglobin, lymphocytes, mch, mchc, mcv, monocytes, mpv, neutrophils, perc_basophils, perc_eosinophils, perc_lymphocytes, perc_monocytes, perc_neutrophils, platelets, rdw, rbc, wbc, albumin, alk_phos, alt, ast, bun, calcium, chloride, co2, creatinine, globulin, glucose, potassium, protein, sodium, t_bili, esr, crp, hdl_ratio, hdl, ldl, non_hdl, total_chol, triglycerides</code></pre>
 </div>
 <div id="apply-log1p-transforms" class="section level1">
 <h1>5. Apply log1p transforms</h1>
@@ -500,8 +500,6 @@ if (any(per_col_missing &gt; 0)) {
 }</code></pre>
 <pre><code>## Per-column missingness (non-zero only):
 ##   cmv: 4 / 92 (4.3%)
-##   bmi: 18 / 92 (19.6%)
-##   height: 18 / 92 (19.6%)
 ##   weight: 6 / 92 (6.5%)
 ##   ldl: 1 / 92 (1.1%)</code></pre>
 <pre class="r"><code># Coerce to a plain data.frame: read_csv/dplyr produce a tibble, but bnlearn&#39;s
@@ -511,21 +509,19 @@ bn_complete &lt;- as.data.frame(bn_df[complete.cases(bn_df), ])
 n_after &lt;- nrow(bn_complete)
 cat(sprintf(&quot;\nComplete cases: %d / %d (dropped %d)\n&quot;, n_after, n_before, n_before - n_after))</code></pre>
 <pre><code>## 
-## Complete cases: 69 / 92 (dropped 23)</code></pre>
+## Complete cases: 81 / 92 (dropped 11)</code></pre>
 <pre class="r"><code># Warn if losing more than 15% of samples
 if ((n_before - n_after) / n_before &gt; 0.15) {
   warning(sprintf(&quot;Dropping %.1f%% of samples — consider imputation or excluding high-missingness columns&quot;,
                   100 * (n_before - n_after) / n_before))
 }</code></pre>
-<pre><code>## Warning: Dropping 25.0% of samples — consider imputation or excluding
-## high-missingness columns</code></pre>
 </div>
 <div id="summary-and-export" class="section level1">
 <h1>8. Summary and export</h1>
 <pre class="r"><code>cat(sprintf(&quot;Final data: %d samples x %d nodes (%d roots + %d continuous)\n&quot;,
             nrow(bn_complete), ncol(bn_complete),
             length(ROOTS), ncol(bn_complete) - length(ROOTS)))</code></pre>
-<pre><code>## Final data: 69 samples x 49 nodes (3 roots + 46 continuous)</code></pre>
+<pre><code>## Final data: 81 samples x 47 nodes (3 roots + 44 continuous)</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Root balance:\n&quot;))</code></pre>
 <pre><code>## Root balance:</code></pre>
 <pre class="r"><code>for (root in ROOTS) {
@@ -535,15 +531,15 @@ if ((n_before - n_after) / n_before &gt; 0.15) {
 <pre><code>##   age_group:
 ## 
 ## Young Adult Older Adult 
-##          32          37 
+##          38          43 
 ##   sex:
 ## 
 ## Female   Male 
-##     41     28 
+##     49     32 
 ##   cmv:
 ## 
 ## Negative Positive 
-##       34       35</code></pre>
+##       43       38</code></pre>
 <pre class="r"><code># Save analysis-ready data
 out_path &lt;- file.path(&quot;output&quot;, &quot;models&quot;, sprintf(&quot;%s_data.rds&quot;, NETWORK_ID))
 saveRDS(bn_complete, out_path)
