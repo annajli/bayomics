@@ -101,6 +101,11 @@ bn_df <- bn_raw %>%
   select(all_of(unname(col_selection))) %>%
   rename(!!!setNames(unname(col_selection), names(col_selection)))
 
+# Coerce continuous nodes to numeric (double) — bnlearn CLG rejects integer columns
+continuous_nodes <- setdiff(names(bn_df), ROOTS)
+bn_df <- bn_df %>%
+  mutate(across(all_of(continuous_nodes), as.numeric))
+
 cat(sprintf("Selected %d columns (aliases): %s\n",
             ncol(bn_df), paste(names(bn_df), collapse = ", ")))
 ```
@@ -145,7 +150,10 @@ if (any(per_col_missing > 0)) {
   }
 }
 
-bn_complete <- bn_df[complete.cases(bn_df), ]
+# Coerce to a plain data.frame: read_csv/dplyr produce a tibble, but bnlearn's
+# C backend does not support tibbles (bn.fit throws "REAL() can only be applied
+# to a 'numeric', not a 'integer'" on conditional-Gaussian nodes).
+bn_complete <- as.data.frame(bn_df[complete.cases(bn_df), ])
 n_after <- nrow(bn_complete)
 cat(sprintf("\nComplete cases: %d / %d (dropped %d)\n", n_after, n_before, n_before - n_after))
 

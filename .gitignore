@@ -3,3 +3,4 @@ context/
 docs/
 __pycache__/
 *.py[cod]
+02_structure_learning_cache/
