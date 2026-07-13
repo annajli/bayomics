@@ -1,0 +1,155 @@
+---
+title: "BN Model Comparison & Sanity Checks"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_knit$set(root.dir = here::here("bn_learning"))
+library(bnlearn)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+# 1. Load all models
+
+```{r load-models}
+model_files <- list.files("output/models", pattern = "_models_v2\\.rds$", full.names = TRUE)
+models <- setNames(
+  lapply(model_files, readRDS),
+  gsub("_models_v2\\.rds$", "", basename(model_files))
+)
+cat(sprintf("Loaded %d model sets: %s\n", length(models), paste(names(models), collapse = ", ")))
+```
+
+# 2. Summary table
+
+```{r summary-table}
+summary_rows <- lapply(names(models), function(nm) {
+  m <- models[[nm]]
+  data.frame(
+    network = nm,
+    n_nodes = length(nodes(m$bn_tabu)),
+    edges_hc = narcs(m$bn_hc),
+    edges_tabu = narcs(m$bn_tabu),
+    edges_mmhc = narcs(m$bn_mmhc),
+    edges_avg_opt = narcs(m$avg_opt),
+    edges_avg_85 = narcs(m$avg_85),
+    edges_avg_50 = narcs(m$avg_50),
+    bic_hc = score(m$bn_hc, readRDS(sprintf("output/models/%s_data_v2.rds", nm)), type = "bic-cg"),
+    bic_tabu = score(m$bn_tabu, readRDS(sprintf("output/models/%s_data_v2.rds", nm)), type = "bic-cg"),
+    stringsAsFactors = FALSE
+  )
+})
+summary_df <- bind_rows(summary_rows)
+knitr::kable(summary_df, digits = 2, caption = "Network comparison summary")
+```
+
+# 3. Cross-level edge comparison (L1a vs L1b)
+
+Which edges in the curated L1b network also appear in the full L1a network?
+Edges present in both are more robust — they survive node-set perturbation.
+
+```{r cross-level, eval = all(c("L1a_clinical_full", "L1b_clinical_curated") %in% names(models))}
+arcs_L1a <- apply(arcs(models$L1a_clinical_full$bn_tabu), 1, paste, collapse = "->")
+arcs_L1b <- apply(arcs(models$L1b_clinical_curated$bn_tabu), 1, paste, collapse = "->")
+
+shared <- intersect(arcs_L1a, arcs_L1b)
+l1a_only <- setdiff(arcs_L1a, arcs_L1b)
+l1b_only <- setdiff(arcs_L1b, arcs_L1a)
+
+cat(sprintf("L1a edges: %d, L1b edges: %d\n", length(arcs_L1a), length(arcs_L1b)))
+cat(sprintf("Shared: %d, L1a-only: %d, L1b-only: %d\n",
+            length(shared), length(l1a_only), length(l1b_only)))
+
+if (length(shared) > 0) {
+  cat("\nShared edges (robust to node selection):\n")
+  cat(paste(" ", shared, collapse = "\n"), "\n")
+}
+```
+
+# 4. Sanity-check conditional queries
+
+Using the L1b tabu-fitted model as the demonstration.
+
+```{r sanity-queries, eval = "L1b_clinical_curated" %in% names(models)}
+fit <- models$L1b_clinical_curated$fit_tabu
+data_l1b <- readRDS("output/models/L1b_clinical_curated_data_v2.rds")
+
+set.seed(99)
+n_sim <- 50000  # Monte Carlo samples for cpquery
+
+# Query 1: E[CRP | age_group = Older] vs E[CRP | age_group = Young]
+# Expected: higher in Older Adult (inflammaging)
+if ("crp" %in% names(fit)) {
+  crp_older <- cpquery(fit, event = (crp > median(data_l1b$crp)),
+                       evidence = (age_group == "Older Adult"), n = n_sim)
+  crp_young <- cpquery(fit, event = (crp > median(data_l1b$crp)),
+                       evidence = (age_group == "Young Adult"), n = n_sim)
+  cat(sprintf("Query 1 — P(CRP > median | age=Older) = %.3f vs P(CRP > median | age=Young) = %.3f\n",
+              crp_older, crp_young))
+  cat(sprintf("  Expected: Older > Young (inflammaging). %s\n",
+              ifelse(crp_older > crp_young, "PASS", "UNEXPECTED")))
+}
+
+# Query 2: E[lymphocytes | CMV = Pos] vs E[lymphocytes | CMV = Neg]
+# Expected: lower or shifted in CMV+ (immunosenescence)
+if ("lymphocytes" %in% names(fit)) {
+  lymph_pos <- cpquery(fit, event = (lymphocytes > median(data_l1b$lymphocytes)),
+                       evidence = (cmv == "Positive"), n = n_sim)
+  lymph_neg <- cpquery(fit, event = (lymphocytes > median(data_l1b$lymphocytes)),
+                       evidence = (cmv == "Negative"), n = n_sim)
+  cat(sprintf("Query 2 — P(lymph > median | CMV=Pos) = %.3f vs P(lymph > median | CMV=Neg) = %.3f\n",
+              lymph_pos, lymph_neg))
+}
+
+# Query 3: E[hemoglobin | sex = Male] vs E[hemoglobin | sex = Female]
+# Expected: higher in Male (well-established)
+if ("hemoglobin" %in% names(fit)) {
+  hgb_m <- cpquery(fit, event = (hemoglobin > median(data_l1b$hemoglobin)),
+                   evidence = (sex == "Male"), n = n_sim)
+  hgb_f <- cpquery(fit, event = (hemoglobin > median(data_l1b$hemoglobin)),
+                   evidence = (sex == "Female"), n = n_sim)
+  cat(sprintf("Query 3 — P(Hgb > median | Male) = %.3f vs P(Hgb > median | Female) = %.3f\n",
+              hgb_m, hgb_f))
+  cat(sprintf("  Expected: Male > Female. %s\n",
+              ifelse(hgb_m > hgb_f, "PASS", "UNEXPECTED")))
+}
+
+# Query 4: Joint conditioning — CRP given Older + CMV+
+# Expected: highest inflammatory burden
+if (all(c("crp", "age_group", "cmv") %in% names(fit))) {
+  crp_both <- cpquery(fit, event = (crp > median(data_l1b$crp)),
+                      evidence = (age_group == "Older Adult" & cmv == "Positive"), n = n_sim)
+  crp_neither <- cpquery(fit, event = (crp > median(data_l1b$crp)),
+                         evidence = (age_group == "Young Adult" & cmv == "Negative"), n = n_sim)
+  cat(sprintf("Query 4 — P(CRP > median | Older+CMV+) = %.3f vs P(CRP > median | Young+CMV-) = %.3f\n",
+              crp_both, crp_neither))
+  cat(sprintf("  Expected: Older+CMV+ > Young+CMV-. %s\n",
+              ifelse(crp_both > crp_neither, "PASS", "UNEXPECTED")))
+}
+```
+
+# 5. Validator handoff summary
+
+```{r handoff}
+cat("=== HANDOFF SUMMARY ===\n\n")
+cat("Model files in output/models/:\n")
+for (f in list.files("output/models", pattern = "\\.rds$")) {
+  cat(sprintf("  %s (%.1f KB)\n", f, file.size(file.path("output/models", f)) / 1024))
+}
+cat("\nNode mappings in output/:\n")
+for (f in list.files("output", pattern = "_node_mapping\\.csv$")) {
+  cat(sprintf("  %s\n", f))
+}
+cat("\nTo load a model and run queries:\n")
+cat('  models <- readRDS("output/models/L1b_clinical_curated_models.rds")\n')
+cat('  fit <- models$fit_tabu\n')
+cat('  cpquery(fit, event = (crp > 1.0), evidence = (age_group == "Older Adult"))\n')
+cat("\nValidation data: ../data/processed/flu_response_validation.csv\n")
+cat("  Key: subject.subjectGuid (join to bn_ready_baseline.csv)\n")
+cat("  Targets: val.igg_seroconvert, val.hai_peak (per antigen)\n")
+```
