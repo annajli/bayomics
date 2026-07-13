@@ -1,5 +1,5 @@
 # config/L1b_clinical_curated.R
-# L1b: Clinical-only (curated) — 3 roots + 23 clinical continuous nodes
+# L1b: Clinical-only (curated) — 3 roots + 22 clinical continuous nodes
 # Literature-curated immune-aging panel
 
 NETWORK_ID <- "L1b_clinical_curated"
@@ -45,9 +45,8 @@ CONTINUOUS_MAP <- c(
   # Kidney (2)
   creatinine       = "clinical.chem.creatinine",
   bun              = "clinical.chem.bun",
-  # Metabolic (2)
+  # Metabolic (1) — BMI dropped: 18/92 missing, indirect immune-aging relevance
   glucose          = "clinical.chem.glucose",
-  bmi              = "clinical.am.bmi",
   # CBC context (2)
   wbc              = "clinical.bc.wbc",
   hematocrit       = "clinical.bc.hematocrit",

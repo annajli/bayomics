@@ -39,8 +39,10 @@ cat(sprintf("Loaded bn_ready_baseline.csv: %d x %d\n", nrow(bn_raw), ncol(bn_raw
 
 # 3. Backfill CMV from raw metadata
 
-CMV IgG serology was measured at non-baseline visits for 83/92 subjects.
+CMV IgG serology was measured at non-baseline visits for most subjects.
 CMV serostatus is a stable trait — backfill from whichever visit has the measurement.
+4 subjects (BR1049, BR1056, BR1058, BR1059) have no CMV at any visit — they remain
+NA and will be dropped at the complete-case step (CMV is a required root node).
 
 ```{r backfill-cmv}
 meta_raw <- read_csv(
@@ -53,17 +55,24 @@ cmv_lookup <- meta_raw %>%
   distinct(subject.subjectGuid, .keep_all = TRUE) %>%
   select(subject.subjectGuid, cmv_backfill = cmv.igg_serology_interpretation)
 
-# Verify all 92 subjects have CMV
-stopifnot(all(bn_raw$subject.subjectGuid %in% cmv_lookup$subject.subjectGuid))
+# Report coverage (88/92 have CMV; 4 subjects have no CMV at any visit)
+n_with_cmv <- sum(bn_raw$subject.subjectGuid %in% cmv_lookup$subject.subjectGuid)
+n_without <- nrow(bn_raw) - n_with_cmv
+cat(sprintf("CMV available for %d / %d subjects (%d without CMV at any visit)\n",
+            n_with_cmv, nrow(bn_raw), n_without))
+if (n_without > 0) {
+  missing_guids <- setdiff(bn_raw$subject.subjectGuid, cmv_lookup$subject.subjectGuid)
+  cat(sprintf("  Subjects without CMV: %s\n", paste(missing_guids, collapse = ", ")))
+}
 
-# Verify no conflicts (each subject has exactly one status)
+# Verify no conflicts among subjects that DO have CMV
 n_status <- meta_raw %>%
   filter(!is.na(cmv.igg_serology_interpretation)) %>%
   group_by(subject.subjectGuid) %>%
   summarise(n_unique = n_distinct(cmv.igg_serology_interpretation), .groups = "drop")
 stopifnot(all(n_status$n_unique == 1))
 
-# Merge and overwrite
+# Merge and overwrite (left join — subjects without CMV stay NA)
 bn_raw <- bn_raw %>%
   left_join(cmv_lookup, by = "subject.subjectGuid") %>%
   mutate(cmv.igg_serology_interpretation = cmv_backfill) %>%
