@@ -1,0 +1,250 @@
+---
+title: "BN Structure Learning"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L1b_clinical_curated.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE,
+                      fig.width = 10, fig.height = 10)
+knitr::opts_knit$set(root.dir = here::here("bn_learning"))
+library(bnlearn)
+library(dplyr)
+library(ggplot2)
+```
+
+# 1. Load config and data
+
+```{r load}
+source(params$config)
+cat(sprintf("Network: %s\n", NETWORK_ID))
+
+bn_df <- readRDS(file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID)))
+cat(sprintf("Data: %d samples x %d nodes\n", nrow(bn_df), ncol(bn_df)))
+
+set.seed(SEED)
+```
+
+# 2. Generate blacklist
+
+No edges into root nodes + roots mutually independent.
+CLG constraint: discrete nodes cannot have continuous parents.
+
+```{r blacklist}
+all_nodes <- names(bn_df)
+non_roots <- setdiff(all_nodes, ROOTS)
+
+# Rule 1: No edges INTO root nodes (from any node)
+bl_into_roots <- expand.grid(from = all_nodes, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+# Rule 2: Roots mutually independent (no edges between roots in either direction)
+# Already covered by Rule 1 (roots are in the "to" set), but make explicit:
+bl_between_roots <- expand.grid(from = ROOTS, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+blacklist <- rbind(bl_into_roots, bl_between_roots) %>% distinct()
+cat(sprintf("Blacklist: %d edges forbidden\n", nrow(blacklist)))
+```
+
+# 3. Score-based structure learning
+
+## 3a. Hill-climbing
+
+```{r hc}
+set.seed(SEED)
+bn_hc <- hc(bn_df, score = "bic-cg", blacklist = blacklist)
+cat(sprintf("HC: %d edges, BIC-cg = %.2f\n", narcs(bn_hc), score(bn_hc, bn_df, type = "bic-cg")))
+```
+
+## 3b. Tabu search
+
+```{r tabu}
+set.seed(SEED)
+bn_tabu <- tabu(bn_df, score = "bic-cg", blacklist = blacklist)
+cat(sprintf("Tabu: %d edges, BIC-cg = %.2f\n", narcs(bn_tabu), score(bn_tabu, bn_df, type = "bic-cg")))
+```
+
+## 3c. MMHC (hybrid)
+
+```{r mmhc}
+set.seed(SEED)
+bn_mmhc <- mmhc(bn_df, blacklist = blacklist)
+cat(sprintf("MMHC: %d edges, BIC-cg = %.2f\n", narcs(bn_mmhc), score(bn_mmhc, bn_df, type = "bic-cg")))
+```
+
+# 4. Algorithm comparison
+
+```{r algorithm-comparison}
+# Edge overlap
+arcs_hc   <- apply(arcs(bn_hc), 1, paste, collapse = "->")
+arcs_tabu <- apply(arcs(bn_tabu), 1, paste, collapse = "->")
+arcs_mmhc <- apply(arcs(bn_mmhc), 1, paste, collapse = "->")
+
+all_arcs <- unique(c(arcs_hc, arcs_tabu, arcs_mmhc))
+comparison <- data.frame(
+  edge = all_arcs,
+  hc   = all_arcs %in% arcs_hc,
+  tabu = all_arcs %in% arcs_tabu,
+  mmhc = all_arcs %in% arcs_mmhc,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(n_agree = hc + tabu + mmhc) %>%
+  arrange(desc(n_agree), edge)
+
+cat(sprintf("Total unique edges across algorithms: %d\n", nrow(comparison)))
+cat(sprintf("Edges in all 3: %d\n", sum(comparison$n_agree == 3)))
+cat(sprintf("Edges in 2/3: %d\n", sum(comparison$n_agree == 2)))
+cat(sprintf("Edges in 1/3: %d\n", sum(comparison$n_agree == 1)))
+
+knitr::kable(comparison, caption = "Edge agreement across algorithms")
+```
+
+# 5. Bootstrap model averaging
+
+```{r bootstrap, cache=TRUE}
+set.seed(SEED)
+boot_str <- boot.strength(
+  bn_df,
+  R = 1000,
+  algorithm = "tabu",
+  algorithm.args = list(score = "bic-cg", blacklist = blacklist)
+)
+
+cat("Bootstrap strength summary:\n")
+print(summary(boot_str$strength))
+cat(sprintf("\nDirection probability summary:\n"))
+print(summary(boot_str$direction))
+```
+
+## 5a. Averaged networks at multiple thresholds
+
+```{r averaged-networks}
+# Optimal threshold (bnlearn heuristic)
+avg_opt <- averaged.network(boot_str)
+thresh_opt <- attr(avg_opt, "threshold")
+cat(sprintf("Optimal threshold: %.4f\n", thresh_opt))
+cat(sprintf("Averaged network (optimal, t=%.4f): %d edges\n", thresh_opt, narcs(avg_opt)))
+
+# Conservative threshold (0.85)
+avg_85 <- averaged.network(boot_str, threshold = 0.85)
+cat(sprintf("Averaged network (t=0.85): %d edges\n", narcs(avg_85)))
+
+# Liberal threshold (0.50)
+avg_50 <- averaged.network(boot_str, threshold = 0.50)
+cat(sprintf("Averaged network (t=0.50): %d edges\n", narcs(avg_50)))
+```
+
+# 6. Edge strength table
+
+```{r edge-strength}
+# Filter to edges with strength > 0.1 for readability
+sig_edges <- boot_str %>%
+  filter(strength > 0.1) %>%
+  arrange(desc(strength))
+
+knitr::kable(sig_edges, digits = 3,
+             caption = "Bootstrap edge strengths (strength > 0.1)")
+```
+
+# 7. DAG visualizations
+
+```{r plot-dag-tabu, fig.cap="Tabu search DAG"}
+if (requireNamespace("Rgraphviz", quietly = TRUE)) {
+  graphviz.plot(bn_tabu, main = sprintf("%s — Tabu", NETWORK_ID),
+                shape = "ellipse",
+                highlight = list(nodes = ROOTS, fill = "lightblue"))
+} else {
+  # Fallback: igraph/ggraph
+  library(igraph)
+  library(ggraph)
+  g <- igraph::graph_from_data_frame(arcs(bn_tabu))
+  ggraph(g, layout = "fr") +
+    geom_edge_link(arrow = arrow(length = unit(3, "mm")), end_cap = circle(3, "mm")) +
+    geom_node_point(size = 5, aes(color = name %in% ROOTS)) +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "lightblue"),
+                       guide = "none") +
+    labs(title = sprintf("%s — Tabu", NETWORK_ID)) +
+    theme_void()
+}
+```
+
+```{r plot-dag-avg, fig.cap="Averaged network (optimal threshold)"}
+if (requireNamespace("Rgraphviz", quietly = TRUE)) {
+  graphviz.plot(avg_opt, main = sprintf("%s — Averaged (t=%.3f)", NETWORK_ID, thresh_opt),
+                shape = "ellipse",
+                highlight = list(nodes = ROOTS, fill = "lightblue"))
+} else {
+  library(igraph)
+  library(ggraph)
+  g <- igraph::graph_from_data_frame(arcs(avg_opt))
+  ggraph(g, layout = "fr") +
+    geom_edge_link(arrow = arrow(length = unit(3, "mm")), end_cap = circle(3, "mm")) +
+    geom_node_point(size = 5, aes(color = name %in% ROOTS)) +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "lightblue"),
+                       guide = "none") +
+    labs(title = sprintf("%s — Averaged (t=%.3f)", NETWORK_ID, thresh_opt)) +
+    theme_void()
+}
+```
+
+# 8. Fit parameters and save
+
+```{r fit-and-save}
+# Fit parameters on the tabu DAG
+fit_tabu <- bn.fit(bn_tabu, bn_df)
+
+# Save everything
+models <- list(
+  bn_hc     = bn_hc,
+  bn_tabu   = bn_tabu,
+  bn_mmhc   = bn_mmhc,
+  fit_tabu  = fit_tabu,
+  boot_str  = boot_str,
+  avg_opt   = avg_opt,
+  avg_85    = avg_85,
+  avg_50    = avg_50,
+  blacklist = blacklist,
+  config    = list(
+    NETWORK_ID       = NETWORK_ID,
+    SEED             = SEED,
+    ROOTS            = ROOTS,
+    NODE_MAP         = NODE_MAP,
+    LOG_TRANSFORM    = LOG_TRANSFORM,
+    REFERENCE_LEVELS = REFERENCE_LEVELS
+  )
+)
+
+out_path <- file.path("output", "models", sprintf("%s_models.rds", NETWORK_ID))
+saveRDS(models, out_path)
+cat(sprintf("Saved all models: %s\n", out_path))
+```
+
+# 9. Save DAG figures
+
+```{r save-figures}
+fig_dir <- file.path("output", "figures")
+
+# Edge strength histogram
+p <- ggplot(boot_str, aes(x = strength)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = c(0.5, 0.85, thresh_opt),
+             linetype = c("dashed", "dashed", "solid"),
+             color = c("orange", "red", "darkgreen")) +
+  annotate("text", x = 0.5, y = Inf, label = "0.50", vjust = 2, color = "orange") +
+  annotate("text", x = 0.85, y = Inf, label = "0.85", vjust = 2, color = "red") +
+  annotate("text", x = thresh_opt, y = Inf, label = sprintf("opt=%.2f", thresh_opt),
+           vjust = 3.5, color = "darkgreen") +
+  labs(title = sprintf("%s — Bootstrap Edge Strength Distribution", NETWORK_ID),
+       x = "Edge Strength", y = "Count") +
+  theme_minimal()
+
+ggsave(file.path(fig_dir, sprintf("%s_edge_strength_hist.png", NETWORK_ID)),
+       p, width = 8, height = 5, dpi = 150)
+cat("Saved edge strength histogram\n")
+```
