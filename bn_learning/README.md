@@ -12,8 +12,11 @@ molecular features.
 | Level | Config | Nodes | Description |
 |-------|--------|-------|-------------|
 | L1a | `config/L1a_clinical_full.R` | 3 + 46 | All clinical variables (minus 6 exclude + NLR) |
-| L1b | `config/L1b_clinical_curated.R` | 3 + 23 | Literature-curated immune-aging panel |
+| L1a_v2 | `config/L1a_clinical_full_v2.R` | 3 + 48 | L1a + BMI/height added back |
+| L1b | `config/L1b_clinical_curated.R` | 3 + 22 | Literature-curated immune-aging panel (BMI dropped) |
+| L1b_v2 | `config/L1b_clinical_curated_v2.R` | 3 + 23 | L1b + BMI added back |
 | L2 | `config/L2_olink.R` | 3 + 35 | Olink plasma proteomics |
+| L2_v2 | TBD | TBD | Olink variant (not yet added) |
 | L3-L5 | TBD | TBD | Cross-modality and combined networks |
 
 ## Notebooks
@@ -68,7 +71,7 @@ Key targets: `val.igg_seroconvert`, `val.igg_fc`, `val.hai_peak` (per antigen).
 ### Key design decisions
 
 - **CLG**: discrete roots cannot have continuous parents (enforced by blacklist)
-- **CMV backfilled**: only 9/92 measured at baseline; all 92 have CMV from other visits (stable trait)
+- **CMV backfilled**: only 9/92 measured at baseline; 88/92 have CMV from other visits (stable trait); 4 subjects (BR1049, BR1056, BR1058, BR1059) have no CMV at any visit and are dropped at complete-case
 - **Log-transformed**: CRP, ESR, ALT, AST, triglycerides, glucose (clinical networks only)
 - **Olink NPX**: already log2-scale, no additional transform
 - **Complete-case**: rows with any NA dropped (varies by network level)
