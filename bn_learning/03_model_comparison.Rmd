@@ -18,6 +18,7 @@ library(ggplot2)
 
 ```{r load-models}
 model_files <- list.files("output/models", pattern = "_models\\.rds$", full.names = TRUE)
+model_files <- model_files[!grepl("_v2", model_files)]  # v1 only
 models <- setNames(
   lapply(model_files, readRDS),
   gsub("_models\\.rds$", "", basename(model_files))
