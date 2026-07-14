@@ -16,7 +16,7 @@ molecular features.
 | L1b | `config/L1b_clinical_curated.R` | 3 + 22 | Literature-curated immune-aging panel (BMI dropped) |
 | L1b_v2 | `config/L1b_clinical_curated_v2.R` | 3 + 23 | L1b + BMI added back |
 | L2 | `config/L2_olink.R` | 3 + 35 | Olink plasma proteomics |
-| L2_v2 | TBD | TBD | Olink variant (not yet added) |
+| L2_v2 | `config/L2_olink_v2.R` | 3 + 34 | Olink with MMP9 excluded |
 | L3-L5 | TBD | TBD | Cross-modality and combined networks |
 
 ## Directory layout

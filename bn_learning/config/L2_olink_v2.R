@@ -2,7 +2,7 @@
 # L2: Olink-only — 3 roots + 35 Olink proteins
 # NPX values are already log2-scale — no additional log transform needed
 
-NETWORK_ID <- "L2_olink"
+NETWORK_ID <- "L2_olink_v2"
 SEED <- 44L
 
 EXCLUDE_CANDIDATES <- c("olink.MMP9")  # No olink columns are exclude_candidates
