@@ -2,7 +2,7 @@
 # L1b: Clinical-only (curated) — 3 roots + 22 clinical continuous nodes
 # Literature-curated immune-aging panel
 
-NETWORK_ID <- "L1b_clinical_curated"
+NETWORK_ID <- "L1b_clinical_curated_v2"
 SEED <- 43L
 
 EXCLUDE_CANDIDATES <- c(

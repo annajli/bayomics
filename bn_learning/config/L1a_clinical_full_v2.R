@@ -2,7 +2,7 @@
 # L1a: Clinical-only (full) — 3 roots + 47 clinical continuous nodes
 # 53 clinical features minus 6 exclude_candidates (>20% missing)
 
-NETWORK_ID <- "L1a_clinical_full"
+NETWORK_ID <- "L1a_clinical_full_v2"
 SEED <- 42L
 
 # Columns to drop (>20% missing)
