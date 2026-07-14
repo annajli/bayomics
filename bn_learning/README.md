@@ -19,18 +19,43 @@ molecular features.
 | L2_v2 | TBD | TBD | Olink variant (not yet added) |
 | L3-L5 | TBD | TBD | Cross-modality and combined networks |
 
+## Directory layout
+
+```
+bn_learning/
+├── 00_install_packages.R        # One-time R package setup
+├── 01_data_prep.Rmd             # Parameterized: params$config
+├── 02_structure_learning.Rmd    # Parameterized: params$config
+├── 03_model_comparison.Rmd      # Parameterized: params$version ("v1" or "v2")
+├── config/                      # Network-level configs (sourced by 01/02)
+├── output/
+│   ├── models/                  # .rds model + data files
+│   ├── figures/                 # Edge strength histograms, etc.
+│   └── mappings/                # *_node_mapping.csv (short alias <-> bn_ready column)
+└── rendered/                    # All HTML outputs + figure dirs
+    ├── L1a/                     # 01/02 renders for L1a (v1 + v2)
+    ├── L1b/                     # 01/02 renders for L1b (v1 + v2)
+    ├── L2/                      # 01/02 renders for L2 (v1 + v2)
+    └── comparison/              # 03 renders (v1, v2)
+```
+
 ## Notebooks
 
-| Notebook | Purpose |
-|----------|---------|
-| `01_data_prep.Rmd` | Load data, backfill CMV, transform, subset, complete-case |
-| `02_structure_learning.Rmd` | Run hc/tabu/mmhc + bootstrap model averaging |
-| `03_model_comparison.Rmd` | Compare algorithms, cross-level analysis, sanity queries |
+| Notebook | Params | Purpose |
+|----------|--------|---------|
+| `01_data_prep.Rmd` | `config` | Load data, backfill CMV, transform, subset, complete-case |
+| `02_structure_learning.Rmd` | `config` | Run hc/tabu/mmhc + bootstrap model averaging |
+| `03_model_comparison.Rmd` | `version` | Compare algorithms, cross-level analysis, sanity queries |
 
-All notebooks are parameterized via `params$config`. Render with:
+Notebooks 01 and 02 are parameterized via `params$config`. Notebook 03 is
+parameterized via `params$version` (`"v1"` or `"v2"`). Render examples:
 
 ```r
+# Data prep + structure learning for a specific network level
 rmarkdown::render("01_data_prep.Rmd", params = list(config = "config/L1b_clinical_curated.R"))
+
+# Model comparison for v2 model files
+rmarkdown::render("03_model_comparison.Rmd", params = list(version = "v2"))
 ```
 
 ## For the validator
@@ -52,7 +77,7 @@ cpquery(fit,
 
 ### Node name mapping
 
-Each network level has a `*_node_mapping.csv` in `output/` mapping short
+Each network level has a `*_node_mapping.csv` in `output/mappings/` mapping short
 aliases (used in the BN) back to `bn_ready_baseline.csv` column names.
 
 ### Validation data

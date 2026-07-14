@@ -189,6 +189,6 @@ mapping_df <- data.frame(
   log_transformed = names(NODE_MAP) %in% LOG_TRANSFORM,
   stringsAsFactors = FALSE
 )
-write_csv(mapping_df, file.path("output", sprintf("%s_node_mapping.csv", NETWORK_ID)))
-cat(sprintf("Saved node mapping: output/%s_node_mapping.csv\n", NETWORK_ID))
+write_csv(mapping_df, file.path("output", "mappings", sprintf("%s_node_mapping.csv", NETWORK_ID)))
+cat(sprintf("Saved node mapping: output/mappings/%s_node_mapping.csv\n", NETWORK_ID))
 ```

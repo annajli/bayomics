@@ -3,6 +3,8 @@ title: "BN Model Comparison & Sanity Checks"
 author: "BPGbio Capstone"
 date: "`r Sys.Date()`"
 output: html_document
+params:
+  version: "v1"
 ---
 
 ```{r setup, include=FALSE}
@@ -17,11 +19,18 @@ library(ggplot2)
 # 1. Load all models
 
 ```{r load-models}
-model_files <- list.files("output/models", pattern = "_models\\.rds$", full.names = TRUE)
-model_files <- model_files[!grepl("_v2", model_files)]  # v1 only
+vsuffix <- if (params$version == "v1") "" else paste0("_", params$version)
+cat(sprintf("Version: %s (file suffix: '%s')\n\n", params$version, vsuffix))
+
+model_pattern <- sprintf("_models%s\\.rds$", vsuffix)
+model_files <- list.files("output/models", pattern = model_pattern, full.names = TRUE)
+# When loading v1, exclude any _v2/_v3/etc files that also match the bare pattern
+if (params$version == "v1") {
+  model_files <- model_files[!grepl("_models_v\\d+\\.rds$", model_files)]
+}
 models <- setNames(
   lapply(model_files, readRDS),
-  gsub("_models\\.rds$", "", basename(model_files))
+  gsub(sprintf("_models%s\\.rds$", vsuffix), "", basename(model_files))
 )
 cat(sprintf("Loaded %d model sets: %s\n", length(models), paste(names(models), collapse = ", ")))
 ```
@@ -40,8 +49,8 @@ summary_rows <- lapply(names(models), function(nm) {
     edges_avg_opt = narcs(m$avg_opt),
     edges_avg_85 = narcs(m$avg_85),
     edges_avg_50 = narcs(m$avg_50),
-    bic_hc = score(m$bn_hc, readRDS(sprintf("output/models/%s_data.rds", nm)), type = "bic-cg"),
-    bic_tabu = score(m$bn_tabu, readRDS(sprintf("output/models/%s_data.rds", nm)), type = "bic-cg"),
+    bic_hc = score(m$bn_hc, readRDS(sprintf("output/models/%s_data%s.rds", nm, vsuffix)), type = "bic-cg"),
+    bic_tabu = score(m$bn_tabu, readRDS(sprintf("output/models/%s_data%s.rds", nm, vsuffix)), type = "bic-cg"),
     stringsAsFactors = FALSE
   )
 })
@@ -78,7 +87,7 @@ Using the L1b tabu-fitted model as the demonstration.
 
 ```{r sanity-queries, eval = "L1b_clinical_curated" %in% names(models)}
 fit <- models$L1b_clinical_curated$fit_tabu
-data_l1b <- readRDS("output/models/L1b_clinical_curated_data.rds")
+data_l1b <- readRDS(sprintf("output/models/L1b_clinical_curated_data%s.rds", vsuffix))
 
 set.seed(99)
 n_sim <- 50000  # Monte Carlo samples for cpquery
@@ -142,8 +151,8 @@ cat("Model files in output/models/:\n")
 for (f in list.files("output/models", pattern = "\\.rds$")) {
   cat(sprintf("  %s (%.1f KB)\n", f, file.size(file.path("output/models", f)) / 1024))
 }
-cat("\nNode mappings in output/:\n")
-for (f in list.files("output", pattern = "_node_mapping\\.csv$")) {
+cat("\nNode mappings in output/mappings/:\n")
+for (f in list.files("output/mappings", pattern = "_node_mapping\\.csv$")) {
   cat(sprintf("  %s\n", f))
 }
 cat("\nTo load a model and run queries:\n")
