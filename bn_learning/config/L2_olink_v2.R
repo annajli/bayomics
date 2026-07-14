@@ -5,7 +5,7 @@
 NETWORK_ID <- "L2_olink_v2"
 SEED <- 44L
 
-EXCLUDE_CANDIDATES <- c("olink.MMP9")  # No olink columns are exclude_candidates
+EXCLUDE_CANDIDATES <- c("olink.MMP9")
 DETERMINISTIC_EXCLUDE <- character(0)
 
 ROOT_MAP <- c(
