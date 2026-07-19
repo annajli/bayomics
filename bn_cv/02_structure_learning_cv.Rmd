@@ -1,0 +1,374 @@
+---
+title: "BN Structure Learning (Cross-Validated)"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L1b_clinical_curated.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE,
+                      fig.width = 10, fig.height = 10)
+knitr::opts_knit$set(root.dir = here::here("bn_adapted"))
+library(bnlearn)
+library(dplyr)
+library(ggplot2)
+```
+
+# 1. Load config and data
+
+```{r load}
+source(params$config)
+cat(sprintf("Network: %s\n", NETWORK_ID))
+
+bn_df <- readRDS(file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID)))
+cat(sprintf("Data: %d samples x %d nodes\n", nrow(bn_df), ncol(bn_df)))
+
+set.seed(SEED)
+```
+
+# 2. Generate blacklist
+
+No edges into root nodes + roots mutually independent.
+CLG constraint: discrete nodes cannot have continuous parents.
+
+```{r blacklist}
+all_nodes <- names(bn_df)
+non_roots <- setdiff(all_nodes, ROOTS)
+
+# Rule 1: No edges INTO root nodes (from any node)
+bl_into_roots <- expand.grid(from = all_nodes, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+# Rule 2: Roots mutually independent (no edges between roots in either direction)
+# Already covered by Rule 1 (roots are in the "to" set), but make explicit:
+bl_between_roots <- expand.grid(from = ROOTS, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+# Rule 3: Block edges between WBC and its deterministic components
+# (WBC ≈ sum of the differential counts — same collinearity issue as the
+# already-excluded NLR variable, but here we keep WBC as a node since it may
+# carry non-redundant relationships to other markers, e.g. CRP/ESR).
+# Filtered to intersect(all_nodes) since not every network config includes
+# wbc or all 5 differential counts (e.g. L1b's curated panel omits basophils) —
+# referencing a blacklist node that doesn't exist in bn_df throws an error in
+# build.blacklist(), so this must stay defensive across all three configs.
+wbc_components <- c("neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils")
+wbc_cluster <- intersect(c("wbc", wbc_components), all_nodes)
+
+if (length(wbc_cluster) >= 2) {
+  bl_wbc <- expand.grid(from = wbc_cluster, to = wbc_cluster, stringsAsFactors = FALSE) %>%
+    filter(from != to)
+  cat(sprintf("WBC cluster present: %s (%d blacklist rows)\n",
+              paste(wbc_cluster, collapse = ", "), nrow(bl_wbc)))
+} else {
+  bl_wbc <- data.frame(from = character(0), to = character(0))
+  cat("WBC cluster: fewer than 2 relevant nodes present, no rule applied\n")
+}
+
+blacklist <- rbind(bl_into_roots, bl_between_roots, bl_wbc) %>% distinct()
+cat(sprintf("Blacklist: %d edges forbidden\n", nrow(blacklist)))
+```
+
+# 3. Score-based structure learning
+
+## 3a. Hill-climbing
+
+```{r hc}
+set.seed(SEED)
+bn_hc <- hc(bn_df, score = "bic-cg", blacklist = blacklist)
+cat(sprintf("HC: %d edges, BIC-cg = %.2f\n", narcs(bn_hc), score(bn_hc, bn_df, type = "bic-cg")))
+```
+
+## 3b. Tabu search
+
+```{r tabu}
+set.seed(SEED)
+bn_tabu <- tabu(bn_df, score = "bic-cg", blacklist = blacklist)
+cat(sprintf("Tabu: %d edges, BIC-cg = %.2f\n", narcs(bn_tabu), score(bn_tabu, bn_df, type = "bic-cg")))
+```
+
+## 3c. MMHC (hybrid)
+
+```{r mmhc}
+set.seed(SEED)
+bn_mmhc <- mmhc(bn_df, blacklist = blacklist)
+cat(sprintf("MMHC: %d edges, BIC-cg = %.2f\n", narcs(bn_mmhc), score(bn_mmhc, bn_df, type = "bic-cg")))
+```
+
+# 4. Algorithm comparison
+
+```{r algorithm-comparison}
+# Edge overlap
+arcs_hc   <- apply(arcs(bn_hc), 1, paste, collapse = "->")
+arcs_tabu <- apply(arcs(bn_tabu), 1, paste, collapse = "->")
+arcs_mmhc <- apply(arcs(bn_mmhc), 1, paste, collapse = "->")
+
+all_arcs <- unique(c(arcs_hc, arcs_tabu, arcs_mmhc))
+comparison <- data.frame(
+  edge = all_arcs,
+  hc   = all_arcs %in% arcs_hc,
+  tabu = all_arcs %in% arcs_tabu,
+  mmhc = all_arcs %in% arcs_mmhc,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(n_agree = hc + tabu + mmhc) %>%
+  arrange(desc(n_agree), edge)
+
+cat(sprintf("Total unique edges across algorithms: %d\n", nrow(comparison)))
+cat(sprintf("Edges in all 3: %d\n", sum(comparison$n_agree == 3)))
+cat(sprintf("Edges in 2/3: %d\n", sum(comparison$n_agree == 2)))
+cat(sprintf("Edges in 1/3: %d\n", sum(comparison$n_agree == 1)))
+
+knitr::kable(comparison, caption = "Edge agreement across algorithms")
+```
+
+# 5. Cross-validated structure learning
+
+Replaces bootstrap resampling with repeated k-fold cross-validation, per sponsor
+guidance. Bootstrap asked "is this edge stable under resampling?"; cross-validation
+asks "does this structure generalize to held-out data?" — a direct, more
+conventional overfitting check.
+
+`bn.cv()` learns a fresh tabu structure on each training fold and scores it
+against that fold's held-out data using conditional-Gaussian log-likelihood loss
+(`"logl"`, bnlearn's log-likelihood loss — it uses each node's fitted CLG/discrete
+distribution automatically based on the data's own node types, so no separate
+CLG-specific loss label is needed here). `runs = 10` repeats the whole k-fold
+procedure 10 times with different fold splits, for ~100 total model fits —
+noticeably cheaper than the 1000-replicate bootstrap despite each individual
+tabu search now covering more nodes.
+
+**Note:** this chunk deliberately does NOT use `cache=TRUE` — a prior version of
+this notebook cached the bootstrap chunk, which caused every network (regardless
+of which config was passed in) to silently reuse the first cached result. Do not
+reintroduce caching on this chunk without also keying it to `params$config`
+(e.g. `cache.extra = tools::md5sum(params$config)`).
+
+```{r cross-validation}
+set.seed(SEED)
+K_FOLDS <- 10
+N_RUNS  <- 10
+
+cv_result <- bn.cv(
+  bn_df,
+  bn = "tabu",
+  algorithm.args = list(score = "bic-cg", blacklist = blacklist),
+  loss = "logl",
+  method = "k-fold",
+  k = K_FOLDS,
+  runs = N_RUNS
+)
+
+# bn.cv() returns a list of N_RUNS "bn.kcv" objects when runs > 1 (a single
+# "bn.kcv" object, itself a list of K_FOLDS folds, when runs == 1). Each fold
+# element carries $fitted (a bn.fit learned on that fold's training data) and
+# $loss (the held-out loss for that fold).
+if (N_RUNS > 1) {
+  fold_losses <- unlist(lapply(cv_result, function(run) sapply(run, function(fold) fold$loss)))
+  cv_fits <- unlist(lapply(cv_result, function(run) lapply(run, function(fold) fold$fitted)),
+                     recursive = FALSE)
+} else {
+  fold_losses <- sapply(cv_result, function(fold) fold$loss)
+  cv_fits <- lapply(cv_result, function(fold) fold$fitted)
+}
+
+cat(sprintf("Cross-validation: %d folds x %d runs = %d total fits\n",
+            K_FOLDS, N_RUNS, length(cv_fits)))
+cat(sprintf("Held-out loss (logl): mean = %.3f, sd = %.3f\n",
+            mean(fold_losses), sd(fold_losses)))
+
+# Structure-only versions of each fold's fit, for custom.strength() below
+cv_nets <- lapply(cv_fits, bn.net)
+```
+
+## 5a. Edge stability across CV folds
+
+`custom.strength()` is the same underlying mechanism `boot.strength()` used —
+generalized to accept any list of learned DAGs, not just bootstrap replicates.
+Feeding it the CV-fold structures gives an edge-confidence table in the same
+format as before, just derived from cross-validation instead of resampling.
+
+```{r cv-strength}
+cv_str <- custom.strength(cv_nets, nodes = names(bn_df))
+
+cat("CV-derived strength summary:\n")
+print(summary(cv_str$strength))
+cat(sprintf("\nDirection probability summary:\n"))
+print(summary(cv_str$direction))
+```
+
+## 5b. Averaged networks at multiple thresholds
+
+```{r averaged-networks}
+# Optimal threshold (bnlearn heuristic)
+avg_opt <- averaged.network(cv_str)
+thresh_opt <- attr(avg_opt, "threshold")
+if (is.null(thresh_opt) || is.na(thresh_opt)) {
+  cat("Optimal threshold heuristic returned NA/NULL — falling back to 0.5\n")
+  thresh_opt <- 0.5
+  avg_opt <- averaged.network(cv_str, threshold = thresh_opt)
+}
+cat(sprintf("Optimal threshold: %.4f\n", thresh_opt))
+cat(sprintf("Averaged network (optimal, t=%.4f): %d edges\n", thresh_opt, narcs(avg_opt)))
+
+# Conservative threshold — CV-appropriate empirical valley, not bootstrap's fixed 0.85
+# (CV strengths cluster near 0/1 rather than spreading smoothly like bootstrap's,
+# so a fixed 0.85 cutoff doesn't carry the same meaning across pipelines. Find the
+# local minimum in the mid-range of the strength distribution instead, per-network.)
+#
+# Uses binned counts rather than density()/KDE: a smoothed density estimate gets
+# pulled toward whichever boundary is closest to the near-1.0 cluster (confirmed
+# on L1a, where KDE reported 0.95 — right at the search boundary — while the
+# real minimum-count bin was 0.80-0.85). Binning can't overshoot like that.
+strengths_mid <- cv_str$strength[cv_str$strength > 0.3 & cv_str$strength < 0.95]
+if (length(strengths_mid) >= 5) {
+  bin_width <- 0.05
+  breaks <- seq(0.3, 0.95, by = bin_width)
+  h <- hist(strengths_mid, breaks = breaks, plot = FALSE)
+  min_bin <- which.min(h$counts)
+  thresh_conservative <- h$mids[min_bin]
+  cat(sprintf("Bin counts (0.3-0.95, width %.2f): %s\n",
+              bin_width, paste(h$counts, collapse = ", ")))
+} else {
+  cat("Too few mid-range edge strengths to estimate a valley — falling back to 0.85\n")
+  thresh_conservative <- 0.85
+}
+cat(sprintf("CV-appropriate conservative threshold (empirical valley): %.3f\n", thresh_conservative))
+
+avg_conservative <- averaged.network(cv_str, threshold = thresh_conservative)
+cat(sprintf("Averaged network (conservative, t=%.4f): %d edges\n", thresh_conservative, narcs(avg_conservative)))
+
+# Liberal threshold (0.50)
+avg_50 <- averaged.network(cv_str, threshold = 0.50)
+cat(sprintf("Averaged network (t=0.50): %d edges\n", narcs(avg_50)))
+```
+
+# 6. Edge strength table
+
+```{r edge-strength}
+# Filter to edges with strength > 0.1 for readability
+sig_edges <- cv_str %>%
+  filter(strength > 0.1) %>%
+  arrange(desc(strength))
+
+knitr::kable(sig_edges, digits = 3,
+             caption = "Cross-validated edge strengths (strength > 0.1)")
+```
+
+# 7. DAG visualizations
+
+```{r plot-dag-tabu, fig.cap="Tabu search DAG"}
+if (requireNamespace("Rgraphviz", quietly = TRUE)) {
+  graphviz.plot(bn_tabu, main = sprintf("%s — Tabu", NETWORK_ID),
+                shape = "ellipse",
+                highlight = list(nodes = ROOTS, fill = "lightblue"))
+} else {
+  # Fallback: igraph/ggraph
+  library(igraph)
+  library(ggraph)
+  g <- igraph::graph_from_data_frame(arcs(bn_tabu))
+  ggraph(g, layout = "fr") +
+    geom_edge_link(arrow = arrow(length = unit(3, "mm")), end_cap = circle(3, "mm")) +
+    geom_node_point(size = 5, aes(color = name %in% ROOTS)) +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "lightblue"),
+                       guide = "none") +
+    labs(title = sprintf("%s — Tabu", NETWORK_ID)) +
+    theme_void()
+}
+```
+
+```{r plot-dag-avg, fig.cap="Averaged network (optimal threshold)"}
+if (requireNamespace("Rgraphviz", quietly = TRUE)) {
+  graphviz.plot(avg_opt, main = sprintf("%s — CV Averaged (t=%.3f)", NETWORK_ID, thresh_opt),
+                shape = "ellipse",
+                highlight = list(nodes = ROOTS, fill = "lightblue"))
+} else {
+  library(igraph)
+  library(ggraph)
+  g <- igraph::graph_from_data_frame(arcs(avg_opt))
+  ggraph(g, layout = "fr") +
+    geom_edge_link(arrow = arrow(length = unit(3, "mm")), end_cap = circle(3, "mm")) +
+    geom_node_point(size = 5, aes(color = name %in% ROOTS)) +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "lightblue"),
+                       guide = "none") +
+    labs(title = sprintf("%s — CV Averaged (t=%.3f)", NETWORK_ID, thresh_opt)) +
+    theme_void()
+}
+```
+
+# 8. Fit parameters and save
+
+```{r fit-and-save}
+# Fit parameters on the tabu DAG (learned on the FULL data, not a CV fold)
+fit_tabu <- bn.fit(bn_tabu, bn_df)
+
+# Save everything
+models <- list(
+  bn_hc            = bn_hc,
+  bn_tabu          = bn_tabu,
+  bn_mmhc          = bn_mmhc,
+  fit_tabu         = fit_tabu,
+  cv_str           = cv_str,
+  cv_losses        = fold_losses,
+  avg_opt          = avg_opt,
+  avg_conservative = avg_conservative,
+  avg_50           = avg_50,
+  blacklist        = blacklist,
+  config           = list(
+    NETWORK_ID       = NETWORK_ID,
+    SEED             = SEED,
+    ROOTS            = ROOTS,
+    NODE_MAP         = NODE_MAP,
+    LOG_TRANSFORM    = LOG_TRANSFORM,
+    REFERENCE_LEVELS = REFERENCE_LEVELS,
+    K_FOLDS          = K_FOLDS,
+    N_RUNS           = N_RUNS
+  )
+)
+
+out_path <- file.path("output", "models", sprintf("%s_models.rds", NETWORK_ID))
+saveRDS(models, out_path)
+cat(sprintf("Saved all models: %s\n", out_path))
+```
+
+# 9. Save DAG figures
+
+```{r save-figures}
+fig_dir <- file.path("output", "figures")
+
+# Edge strength histogram
+p <- ggplot(cv_str, aes(x = strength)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = c(0.5, 0.85, thresh_opt),
+             linetype = c("dashed", "dashed", "solid"),
+             color = c("orange", "red", "darkgreen")) +
+  annotate("text", x = 0.5, y = Inf, label = "0.50", vjust = 2, color = "orange") +
+  annotate("text", x = 0.85, y = Inf, label = "0.85", vjust = 2, color = "red") +
+  annotate("text", x = thresh_opt, y = Inf, label = sprintf("opt=%.2f", thresh_opt),
+           vjust = 3.5, color = "darkgreen") +
+  labs(title = sprintf("%s — CV Edge Strength Distribution", NETWORK_ID),
+       x = "Edge Strength", y = "Count") +
+  theme_minimal()
+
+ggsave(file.path(fig_dir, sprintf("%s_edge_strength_hist.png", NETWORK_ID)),
+       p, width = 8, height = 5, dpi = 150)
+cat("Saved edge strength histogram\n")
+
+# Held-out loss distribution — new, CV-specific diagnostic with no bootstrap
+# equivalent. Shows whether generalization performance is stable across folds
+# or highly variable (a high-variance loss suggests the model is sensitive to
+# exactly which subjects end up in the training set — a red flag given n~90).
+p_loss <- ggplot(data.frame(loss = fold_losses), aes(x = loss)) +
+  geom_histogram(bins = 20, fill = "darkorange", color = "white") +
+  labs(title = sprintf("%s — CV Held-Out Loss Distribution (logl)", NETWORK_ID),
+       x = "Held-out loss (lower = better fit)", y = "Count") +
+  theme_minimal()
+
+ggsave(file.path(fig_dir, sprintf("%s_cv_loss_hist.png", NETWORK_ID)),
+       p_loss, width = 8, height = 5, dpi = 150)
+cat("Saved CV loss histogram\n")
+```
