@@ -247,9 +247,3 @@ dependencies, so it needed no fixes).
   exclude_candidates" — but `CONTINUOUS_MAP` only ever had 44 entries
   before this session's changes (now 34). This discrepancy predates this
   session and was not investigated further.
-- **`config/L1a_clinical_full_adapted.R` and
-  `config/L1b_clinical_curated_adapted.R`** exist alongside the `_v2.R`
-  files this session used throughout. Purpose/currency of the `_adapted.R`
-  files was never confirmed — worth checking these aren't stale duplicates
-  that could get edited/run by mistake later, consistent with this
-  project's prior history of exactly this kind of multi-copy confusion.
