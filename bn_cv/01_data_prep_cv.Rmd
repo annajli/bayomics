@@ -1,0 +1,194 @@
+---
+title: "BN Data Preparation"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L1b_clinical_curated.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_knit$set(root.dir = here::here("bn_cv"))
+library(readr)
+library(dplyr)
+library(tidyr)
+library(bnlearn)
+```
+
+# 1. Load config
+
+```{r load-config}
+source(params$config)
+cat(sprintf("Network: %s (seed=%d)\n", NETWORK_ID, SEED))
+cat(sprintf("Roots: %s\n", paste(ROOTS, collapse = ", ")))
+cat(sprintf("Continuous nodes: %d\n", length(CONTINUOUS_MAP)))
+cat(sprintf("Log-transform: %s\n", paste(LOG_TRANSFORM, collapse = ", ")))
+```
+
+# 2. Load baseline data
+
+```{r load-data}
+bn_raw <- read_csv(
+  file.path("..", "data", "processed", "bn_ready_baseline.csv"),
+  show_col_types = FALSE
+)
+stopifnot(nrow(bn_raw) == 92)
+cat(sprintf("Loaded bn_ready_baseline.csv: %d x %d\n", nrow(bn_raw), ncol(bn_raw)))
+```
+
+# 3. Backfill CMV from raw metadata
+
+CMV IgG serology was measured at non-baseline visits for most subjects.
+CMV serostatus is a stable trait — backfill from whichever visit has the measurement.
+4 subjects (BR1049, BR1056, BR1058, BR1059) have no CMV at any visit — they remain
+NA and will be dropped at the complete-case step (CMV is a required root node).
+
+```{r backfill-cmv}
+meta_raw <- read_csv(
+  file.path("..", "data", "raw", "sound_life_labs_metadata.csv"),
+  show_col_types = FALSE
+)
+
+cmv_lookup <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  distinct(subject.subjectGuid, .keep_all = TRUE) %>%
+  select(subject.subjectGuid, cmv_backfill = cmv.igg_serology_interpretation)
+
+# Report coverage (88/92 have CMV; 4 subjects have no CMV at any visit)
+n_with_cmv <- sum(bn_raw$subject.subjectGuid %in% cmv_lookup$subject.subjectGuid)
+n_without <- nrow(bn_raw) - n_with_cmv
+cat(sprintf("CMV available for %d / %d subjects (%d without CMV at any visit)\n",
+            n_with_cmv, nrow(bn_raw), n_without))
+if (n_without > 0) {
+  missing_guids <- setdiff(bn_raw$subject.subjectGuid, cmv_lookup$subject.subjectGuid)
+  cat(sprintf("  Subjects without CMV: %s\n", paste(missing_guids, collapse = ", ")))
+}
+
+# Verify no conflicts among subjects that DO have CMV
+n_status <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  group_by(subject.subjectGuid) %>%
+  summarise(n_unique = n_distinct(cmv.igg_serology_interpretation), .groups = "drop")
+stopifnot(all(n_status$n_unique == 1))
+
+# Merge and overwrite (left join — subjects without CMV stay NA)
+bn_raw <- bn_raw %>%
+  left_join(cmv_lookup, by = "subject.subjectGuid") %>%
+  mutate(cmv.igg_serology_interpretation = cmv_backfill) %>%
+  select(-cmv_backfill)
+
+cat(sprintf("CMV after backfill: %d non-NA / %d\n",
+            sum(!is.na(bn_raw$cmv.igg_serology_interpretation)), nrow(bn_raw)))
+cat("CMV distribution:\n")
+print(table(bn_raw$cmv.igg_serology_interpretation, useNA = "ifany"))
+```
+
+# 4. Select and rename nodes
+
+```{r select-nodes}
+# Build column selection: full csv name -> short alias
+col_selection <- NODE_MAP  # named vector: alias = csv_col
+
+# Verify all columns exist in data
+missing_cols <- setdiff(col_selection, names(bn_raw))
+if (length(missing_cols) > 0) {
+  stop(sprintf("Columns not found in data: %s", paste(missing_cols, collapse = ", ")))
+}
+
+# Select and rename
+bn_df <- bn_raw %>%
+  select(all_of(unname(col_selection))) %>%
+  rename(!!!setNames(unname(col_selection), names(col_selection)))
+
+# Coerce continuous nodes to numeric (double) — bnlearn CLG rejects integer columns
+continuous_nodes <- setdiff(names(bn_df), ROOTS)
+bn_df <- bn_df %>%
+  mutate(across(all_of(continuous_nodes), as.numeric))
+
+cat(sprintf("Selected %d columns (aliases): %s\n",
+            ncol(bn_df), paste(names(bn_df), collapse = ", ")))
+```
+
+# 5. Apply log1p transforms
+
+```{r log-transform}
+if (length(LOG_TRANSFORM) > 0) {
+  for (var in LOG_TRANSFORM) {
+    stopifnot(var %in% names(bn_df))
+    bn_df[[var]] <- log1p(bn_df[[var]])
+    cat(sprintf("  log1p(%s): range [%.2f, %.2f]\n",
+                var, min(bn_df[[var]], na.rm = TRUE), max(bn_df[[var]], na.rm = TRUE)))
+  }
+}
+```
+
+# 6. Set factor levels for discrete roots
+
+```{r factor-roots}
+for (root in ROOTS) {
+  ref <- REFERENCE_LEVELS[[root]]
+  lvls <- sort(unique(bn_df[[root]]))
+  # Put reference level first
+  lvls <- c(ref, setdiff(lvls, ref))
+  bn_df[[root]] <- factor(bn_df[[root]], levels = lvls)
+  cat(sprintf("  %s: levels = %s (ref = %s)\n",
+              root, paste(levels(bn_df[[root]]), collapse = ", "), ref))
+}
+```
+
+# 7. Complete-case analysis
+
+```{r complete-case}
+n_before <- nrow(bn_df)
+per_col_missing <- colSums(is.na(bn_df))
+if (any(per_col_missing > 0)) {
+  cat("Per-column missingness (non-zero only):\n")
+  for (nm in names(per_col_missing[per_col_missing > 0])) {
+    cat(sprintf("  %s: %d / %d (%.1f%%)\n",
+                nm, per_col_missing[nm], n_before, 100 * per_col_missing[nm] / n_before))
+  }
+}
+
+# Coerce to a plain data.frame: read_csv/dplyr produce a tibble, but bnlearn's
+# C backend does not support tibbles (bn.fit throws "REAL() can only be applied
+# to a 'numeric', not a 'integer'" on conditional-Gaussian nodes).
+bn_complete <- as.data.frame(bn_df[complete.cases(bn_df), ])
+n_after <- nrow(bn_complete)
+cat(sprintf("\nComplete cases: %d / %d (dropped %d)\n", n_after, n_before, n_before - n_after))
+
+# Warn if losing more than 15% of samples
+if ((n_before - n_after) / n_before > 0.15) {
+  warning(sprintf("Dropping %.1f%% of samples — consider imputation or excluding high-missingness columns",
+                  100 * (n_before - n_after) / n_before))
+}
+```
+
+# 8. Summary and export
+
+```{r export}
+cat(sprintf("Final data: %d samples x %d nodes (%d roots + %d continuous)\n",
+            nrow(bn_complete), ncol(bn_complete),
+            length(ROOTS), ncol(bn_complete) - length(ROOTS)))
+cat(sprintf("Root balance:\n"))
+for (root in ROOTS) {
+  cat(sprintf("  %s:\n", root))
+  print(table(bn_complete[[root]]))
+}
+
+# Save analysis-ready data
+out_path <- file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID))
+saveRDS(bn_complete, out_path)
+cat(sprintf("\nSaved: %s\n", out_path))
+
+# Also save the node mapping for traceability
+mapping_df <- data.frame(
+  alias = names(NODE_MAP),
+  csv_column = unname(NODE_MAP),
+  type = ifelse(names(NODE_MAP) %in% ROOTS, "discrete_root", "continuous"),
+  log_transformed = names(NODE_MAP) %in% LOG_TRANSFORM,
+  stringsAsFactors = FALSE
+)
+write_csv(mapping_df, file.path("output", sprintf("%s_node_mapping.csv", NETWORK_ID)))
+cat(sprintf("Saved node mapping: output/%s_node_mapping.csv\n", NETWORK_ID))
+```
