@@ -1,249 +1,424 @@
-# bn_adapted CV Pipeline — Session Changelog
+# bn_cv Pipeline — Complete Results Summary
 
-This documents all fixes and changes made to the `bn_adapted` (cross-validation)
-pipeline in this session, why each was needed, and what's still open. Scope is
-limited to `bn_adapted/` — the original `bn_learning/` (bootstrap) pipeline was
-**not** touched by anything below.
+## What each network is
 
----
-
-## Files changed
-
-| File | What changed |
-|---|---|
-| `02_structure_learning_cv.Rmd` | Conservative threshold logic rewritten; WBC-cluster blacklist rule added |
-| `03_model_comparison_cv.Rmd` | Multiple filename-pattern bugs fixed; `avg_85` references updated; Section 5 restored |
-| `config/L1a_clinical_full_v2.R` | 10 deterministic/derived columns removed from `CONTINUOUS_MAP` |
-
-`L1b_clinical_curated_v2.R` and `L2_olink_v2.R` were **not edited** — see
-"Not changed" section below.
-
----
-
-## 1. `02_structure_learning_cv.Rmd`
-
-### 1a. Conservative threshold — replaced fixed 0.85 with an empirical valley
-
-**Problem:** the original conservative threshold was hardcoded to 0.85,
-copied from the bootstrap pipeline's convention. CV-derived edge strengths
-cluster much more heavily near 0 and 1 than bootstrap strengths do (CV folds
-share ~90% of their training data, so an edge either survives nearly every
-fold or almost none), so a threshold value that means "conservative" under
-bootstrap doesn't mean the same thing under CV. Applying 0.85 literally gave
-inconsistent, not-really-comparable edge counts across networks (e.g. L1b:
-38→10 edges under bootstrap's 0.85 vs. 42→24 edges under a literal 0.85 on
-CV strengths).
-
-**Fix, in two iterations:**
-1. First attempt used `density()` (KDE) to find the local minimum ("valley")
-   in the mid-range (0.3–0.95) of the strength distribution. This worked for
-   L1b but failed for L1a — the KDE got pulled toward the search boundary by
-   L1a's large near-1.0 edge cluster, returning t=0.95 (the boundary itself)
-   instead of the true valley at t≈0.82.
-2. **Final fix:** replaced KDE with simple histogram binning (0.05-wide bins
-   over 0.3–0.95), taking the bin with the minimum count as the threshold.
-   Binning can't overshoot a boundary the way a smoothed density estimate can.
-   Also prints the raw bin counts to the render log so the valley can be
-   eyeballed against the edge-strength histogram plot.
-
-**Variable renamed:** `avg_85` → `avg_conservative` throughout (the value is
-no longer literally 0.85, so the old name became misleading). This rename is
-also reflected in the `models <- list(...)` save block, meaning **every
-`*_models_cv.rds` file now stores this network under the key
-`avg_conservative`, not `avg_85`** — anything downstream that reads these
-files needs to use the new name (see Section 3 below, this is exactly what
-broke `03_model_comparison_cv.Rmd`).
-
-**Resulting thresholds per network (this session's final runs):**
-
-| Network | Empirical valley threshold | avg_conservative edges | avg_opt (t=0.5) edges |
+| Network | Modality | Description | Node source |
 |---|---|---|---|
-| L1a_clinical_full (post config fix) | 0.625 | 55 | 67 |
-| L1b_clinical_curated | 0.675 | 29 | 40 |
-| L2_olink | 0.575 | 60 | 66 |
+| **L1a** | Clinical | Full clinical panel — every clinical lab/measurement column not excluded for missingness or determinism | `config/L1a_clinical_full.R` |
+| **L1b** | Clinical | Curated clinical panel — a literature-selected subset of ~22 clinically meaningful markers, smaller and more sample-efficient than L1a | `config/L1b_clinical_curated.R` |
+| **L2** | Olink | Proteomics — 34-protein inflammation/immune panel measured via Olink NPX assay | `config/L2_olink_adapted.R` |
+| **L3a** | Combined | L1a (full clinical) + L2 (Olink) merged into one joint network | `config/L3a_clinical_full_olink.R` |
+| **L3b** | Combined | L1b (curated clinical) + L2 (Olink) merged into one joint network | `config/L3b_clinical_curated_olink.R` |
+| **L4** | Whole blood | Bulk RNA-seq scored against the 50 MSigDB Hallmark gene sets — pathway-level activity summaries, not individual gene expression | `config/L4_wb_pathways.R` |
+| **L5** | Immunophenotyping | Flow/mass cytometry cell-type frequencies, in a 3-level gating hierarchy (L1: 9 broad lineages, L2: 29 subtypes, L3: 71 finest subtypes after dedup) | `config/L5_freq_immunophenotype.R` |
+| **L6** | PBMC signaling | Phospho-flow cytometry — PBMCs stimulated with 6 signals, measured for intracellular pathway activation across 24 cell types (144 = 24 × 6 nodes) | `config/L6_pb_signaling.R` |
 
-Note L2's valley is shallower/less sharply defined than L1a/L1b's — worth
-treating as directionally correct but lower-confidence than the other two.
+All networks share the same 3 root nodes: `age_group`, `sex`, `cmv` (CMV serostatus).
 
-### 1b. WBC-cluster blacklist rule (Rule 3)
+Every network except L5 uses the shared `01_data_prep_cv.Rmd` for data
+preparation. **L5 uses a dedicated `01_data_prep_L5_cv.Rmd`**, since it's
+the only network needing the sibling log-ratio (ALR) transform described
+below. All networks use the shared `02_structure_learning_cv.Rmd` for
+structure learning.
 
-**Problem:** `averaged.network()` threw repeated "would introduce cycles,
-ignoring" warnings at loose thresholds (t=0.5) for L1a. Root cause: WBC is
-(approximately) the sum of its five differential white cell counts
-(neutrophils, lymphocytes, monocytes, eosinophils, basophils), which are
-*also* individually in the network — the same deterministic-collinearity
-problem that had already gotten NLR excluded, just not caught for WBC.
+---
 
-**Fix:** added a blacklist rule forbidding edges between `wbc` and its
-present differential-count components, in both directions:
+## Cross-cutting fixes (apply across some or all networks)
 
-```r
-wbc_components <- c("neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils")
-wbc_cluster <- intersect(c("wbc", wbc_components), all_nodes)
+| Fix | What it does | Applies to |
+|---|---|---|
+| Empirical-valley conservative threshold | Replaced bootstrap's fixed 0.85 cutoff with a per-network histogram-based valley in the CV edge-strength distribution — CV strengths cluster near 0/1 much more than bootstrap's, so a literal 0.85 doesn't mean "conservative" the same way | All networks |
+| WBC-cluster blacklist (Rule 3) | Forbids direct edges between WBC and its differential white-cell-count components (defensively scoped via `intersect()` — no-ops where the cluster isn't present) | L1a (full 6-node cluster), L1b (5 nodes, no basophils); no-ops elsewhere |
+| Hierarchy blacklist (Rule 4) | Forbids direct parent-child edges using a config-supplied `PARENT_MAP` | L5 only; no-ops for all others |
+| `maxp = 10` | Caps parent count per node in `hc()`/`tabu()`/`mmhc()`/`bn.cv()`'s internal search — prevents nodes from accumulating enough parents to produce near-singular local fits | All networks (confirmed present and re-verified via rerun in all 6 working networks) |
 
-if (length(wbc_cluster) >= 2) {
-  bl_wbc <- expand.grid(from = wbc_cluster, to = wbc_cluster, stringsAsFactors = FALSE) %>%
-    filter(from != to)
-} else {
-  bl_wbc <- data.frame(from = character(0), to = character(0))
-}
+---
 
-blacklist <- rbind(bl_into_roots, bl_between_roots, bl_wbc) %>% distinct()
+## L1a — Clinical (full panel)
+
+**37 nodes** (3 roots + 34 continuous), **81/92 samples**.
+
+**Fixes applied:**
+- 10 deterministic/derived columns excluded (MCH/MCHC/MCV, 5 `perc_*`
+  columns, `non_hdl`, `hdl_ratio`) — each is an exact arithmetic function of
+  other columns already in the network (e.g. MCHC = Hgb/Hct×100), the same
+  category of problem as the already-excluded NLR.
+- `ldl`/`total_chol` checked against the same concern and explicitly kept —
+  verified the relationship isn't a closed formula (residual spread up to
+  23.4 mg/dL, correlates with triglyceride level, consistent with a
+  variable-divisor lab calculation rather than the fixed Friedewald formula
+  these 3 columns alone would need to reproduce it exactly).
+- WBC-cluster blacklist rule added after this network repeatedly threw
+  "would introduce cycles" warnings — WBC ≈ sum of its 5 differential
+  counts, all independently present as nodes.
+
+**Results (maxp-confirmed via rerun):**
+```
+Tabu: 80 edges, BIC-cg = -6485.19
+MMHC: 29 edges, BIC-cg = -6676.35
+avg_opt (t=0.5): 67 edges
+avg_conservative (t=0.625): 55 edges
+Held-out loss: mean = 85.115, sd = 5.679  (sd/mean ≈ 7%)
+```
+`maxp` changed nothing here (ratio 37/81 ≈ 0.46, well below where the
+constraint binds) — numbers are bit-identical pre/post.
+
+**History worth knowing:** this network's *original* CV run (before the
+deterministic-column fix) had a catastrophic loss (mean in the hundreds of
+millions, sd ~10x the mean, traced to a single dominant fold). Removing the
+10 deterministic columns resolved nearly all of that instability on its
+own — suggesting the original "too many nodes for the sample size"
+hypothesis was likely secondary to collinearity for this network.
+
+---
+
+## L1b — Clinical (curated panel)
+
+**25 nodes** (3 roots + 22 continuous), **87/92 samples**.
+
+**Fixes applied:** WBC-cluster blacklist (partial — this panel excludes
+`basophils`, so the rule correctly scopes to the 5 remaining members).
+**Open item:** this panel was never reviewed for the broader
+deterministic-column issue found in L1a — only NLR is excluded here.
+
+**Results (maxp-confirmed via rerun):**
+```
+Tabu: 49 edges, BIC-cg = -4955.63
+MMHC: 15 edges, BIC-cg = -5044.08
+avg_opt (t=0.5): 40 edges
+avg_conservative (t=0.675): 29 edges
+Held-out loss: mean = 58.867, sd = 2.781  (tightest CV loss of all 6 working networks)
+```
+`maxp` changed nothing here (ratio 25/87 ≈ 0.29, the lowest of any network).
+
+---
+
+## L2 — Olink proteomics
+
+**37 nodes** (3 roots + 34 continuous), **88/92 samples**.
+
+**Fixes applied:** none needed beyond the pre-existing MMP9 missingness
+exclusion. No deterministic-collinearity issues found or expected — Olink
+NPX values don't have clinical data's formula-derived-column problem.
+
+**Results (maxp-confirmed via rerun):**
+```
+Tabu: 91 edges, BIC-cg = -2368.16
+MMHC: 36 edges, BIC-cg = -2526.07
+avg_opt (t=0.5): 66 edges
+avg_conservative (t=0.575): 60 edges
+Held-out loss: mean = 32.390, sd = 6.376  (sd/mean ≈ 20%, flattest/least
+                                            sharply-defined threshold valley
+                                            of the clinical-scale networks,
+                                            not investigated further —
+                                            still a normal loss range)
+```
+`maxp` changed nothing here (ratio 37/88 ≈ 0.42).
+
+---
+
+## L3a — Combined: Clinical (full) + Olink
+
+**71 nodes** (3 roots + 34 clinical + 34 Olink), config built by merging
+L1a's and L2's already-fixed node sets and exclusion lists (not re-derived
+independently).
+
+**STATUS: BROKEN, UNRESOLVED.** Rendered once — showed a catastrophic CV
+loss (same broad symptom pattern as L5's original problem: high sd/mean
+ratio). **Never diagnosed or fixed** — work moved to other networks before
+this was resolved. Do not treat L3a's edges/thresholds as trustworthy.
+Needs the same diagnostic process used for L5 (sort fold losses → identify
+dominant fold(s) → check for near-singular node fits → likely `maxp` or a
+cross-modality collinearity issue not yet checked).
+
+**Known gap, separate from the above:** neither L1a's nor L2's individual
+review checked for collinearity *between* the two panels (e.g. a clinical
+inflammatory marker highly correlated with a specific Olink cytokine for a
+real biological reason) — this is a distinct, unexplored possible
+contributor.
+
+---
+
+## L3b — Combined: Clinical (curated) + Olink
+
+**59 nodes** (3 roots + 22 clinical + 34 Olink), config built the same way
+as L3a but from L1b's curated panel.
+
+**STATUS: NEVER RENDERED.** Config exists and was verified for
+alias-collision safety at creation time, but this network has not been run
+through either `01_data_prep_cv.Rmd` or `02_structure_learning_cv.Rmd` at
+all in this project.
+
+---
+
+## L4 — Whole blood (Hallmark pathway scores)
+
+**53 nodes** (3 roots + 50 continuous), **86/92 samples**.
+
+**Fixes applied:**
+- `wb.low_lib_flag` excluded from `CONTINUOUS_MAP` — a boolean RNA-seq QC
+  flag (90 False / 1 True / 1 NA), not a pathway score. Caught before it
+  was ever included as a continuous node.
+- No deterministic-collinearity issues found among the 50 real pathway
+  scores (Hallmark sets can share member genes and correlate biologically,
+  but aren't exact arithmetic functions of one another).
+
+**Results (maxp-confirmed via rerun):**
+```
+Tabu: 139 edges, BIC-cg = 11738.64   <- positive BIC-cg, see note below
+MMHC: 46 edges, BIC-cg = 11338.03
+avg_opt (t=0.5): 97 edges
+avg_conservative (t=0.575): 89 edges
+Held-out loss: mean = -131.685, sd = 3.632  (tightest CV loss, in
+                                              absolute-value terms, of any
+                                              network in the project)
+```
+`maxp` changed nothing here (ratio 53/86 ≈ 0.62).
+
+**On the positive BIC-cg:** this same pattern recurred in L6 and was
+directly investigated there (per-node residual sd and parent-count check —
+see L6 section). Same explanation likely applies here (BIC's complexity
+penalty behaving atypically on the single full-data fit at this
+node-to-sample ratio, not hidden numerical instability), though the L6-style
+node-level check was not separately repeated for L4 — its CV loss was
+already excellent, so this was lower priority.
+
+---
+
+## L5 — Immune cell frequencies (3-level gating hierarchy)
+
+**91 nodes** (3 roots + 88 continuous, after the sibling log-ratio
+transform), **88/92 samples**. The most heavily-debugged network in the
+project — original data was 121 raw columns across 3 nested levels
+(L1: 9 broad lineages, L2: 29 subtypes, L3: 83 finest subtypes).
+
+**Fixes applied, in the order they were found:**
+
+1. **12 exact-duplicate columns removed.** 6 base column names each had 4
+   suffixed variants (`base`, `.1`, `.2`, `.3`) — confirmed `base == .2`
+   and `.1 == .3` exactly, in all 92 subjects, across all 6 groups, no
+   exceptions (almost certainly a source-data concatenation artifact). Kept
+   `base` and `.1` (renamed `_alt`), dropped `.2`/`.3`.
+2. **Hierarchy blacklist (Rule 4)** — forbids direct edges between a node
+   and its immediate gating-tree parent, via a `PARENT_MAP` built into the
+   config. Needed a defensive `intersect()` guard for networks where the
+   cluster isn't fully present.
+3. **Two real implementation bugs**, same failure pattern both times: a
+   blacklist component (`bl_hierarchy`, then separately `bl_wbc`) was
+   computed and its summary correctly printed, but never actually added
+   into the final `blacklist <- rbind(...)` call — silently not applied
+   despite looking like it was. Caught by cross-checking the printed row
+   count against the actual total blacklist size.
+4. **Additive log-ratio (ALR) transform.** Direct parent-child blacklisting
+   alone wasn't sufficient — siblings under the same parent are also
+   compositionally redundant (verified: correlation between
+   `Σexp(children)` and `exp(parent)` ≈ 0.87, real but partial redundancy,
+   not an exact formula). For each sibling group, replaced all but the
+   highest-mean-abundance sibling with `log(sibling) - log(reference)`, and
+   dropped the reference node. Extended beyond `PARENT_MAP`'s explicit
+   scope to also treat the 9 L1 categories as one additional top-level
+   sibling group (mutually compositional — should sum to ~100% of
+   measured cells — but had no parent entry of their own).
+5. **`maxp = 10`** — the actual root cause of the remaining catastrophic
+   instability after the above fixes reduced but didn't eliminate it.
+   Diagnosed by: sorting fold losses (top 3 of 100 folds accounted for
+   >90% of total loss) → finding the worst fold's fitted model had a node
+   (`l1_progenitor_cell_alr`) with residual sd = 3.13e-07 (near-singular) →
+   tracing this to that node having 31 parents in an unconstrained search
+   with only ~79 training samples per fold. Capping `maxp` fixed it
+   directly.
+
+**Results (final, post all fixes, re-verified):**
+```
+Tabu: 431 edges, BIC-cg = -3637.73
+MMHC: 90 edges, BIC-cg = -6743.73
+avg_opt (t=0.5): 297 edges
+avg_conservative (t=0.875): 130 edges
+Held-out loss: mean = 61.211, sd = 15.910  (sd/mean ≈ 26% — loss histogram
+                                             shows a real right tail out to
+                                             ~120, consistent with this
+                                             ratio, not a hidden problem)
 ```
 
-**Important implementation detail:** the component list is intersected with
-`all_nodes` (the actual node set for whichever network is currently loaded
-via `params$config`) before building the blacklist. This is required because
-not every network config includes `wbc` or all 5 components — L1b's curated
-panel omits `basophils`, and L2 (Olink) has none of these nodes at all.
-Referencing a blacklist node that doesn't exist in `bn_df` throws a hard
-`build.blacklist()` error rather than failing silently, so this defensive
-`intersect()` is load-bearing, not just tidy — an earlier hardcoded version
-of this rule broke L1b's render with exactly that error.
+Progression of the CV loss mean across each fix stage, for reference:
+7.4 billion (blacklist bug) → 715 million (blacklist fixed) → 570 million
+(ALR added) → **61.2 (maxp added)** — ~8 orders of magnitude improvement,
+only the last step of which was sufficient on its own; the earlier steps
+were real, necessary fixes too.
 
-This chunk is shared across all three networks via `params$config`, so this
-fix applies automatically to all of them.
+**Post-`maxp` verification:** directly checked `fit_tabu`'s per-node
+residual sd and parent counts — no near-singular fits remain (smallest sd
+values are all ordinary, nowhere near the earlier 3.13e-07 failure).
 
 ---
 
-## 2. `config/L1a_clinical_full_v2.R`
+## L6 — PBMC functional/signaling response
 
-**Problem:** beyond WBC, L1a's clinical panel contains several other
-columns that are directly calculated from other columns already in the
-network — the same category of issue as the already-excluded NLR, just not
-previously caught. These produced additional cycle warnings
-(`mchc -> hemoglobin`, `perc_neutrophils -> neutrophils`, etc.) and,
-more importantly, meant the network could contain "edges" that are really
-just restated arithmetic rather than discovered relationships — a problem
-for a project whose stated goal is an *interpretable* network.
+**147 nodes** (3 roots + 144 continuous), **77/92 samples** — the highest
+node-to-sample ratio of any network in this project (≈1.9).
 
-**Columns removed from `CONTINUOUS_MAP`** (44 → 34 entries):
+**Fixes applied:**
+1. **Cell-type selection restricted to 24 of 65 measured types.** The
+   other 41 were dropped entirely, based on missingness driven by
+   cell-type rarity (if a subject didn't have enough cells of a given
+   type, all 6 signaling readouts for that type go missing together —
+   confirmed 100% consistent within-type missingness pattern). A 5%
+   per-cell-type missingness cutoff was chosen to stay under the project's
+   existing 15% total-sample-loss precedent (used earlier to justify the
+   bmi/height/MMP9 exclusions) — keeps complete-case n at 77/92 vs.
+   crashing to 18/92 at a 20% cutoff.
+2. **65 `*_low_ncells_flag` QC columns excluded** — same category as
+   `wb.low_lib_flag`, boolean metadata not biology.
+3. **`maxp = 10`** applied from the start, given the lesson already
+   learned from L5.
 
-| Column(s) | Why |
-|---|---|
-| `mch`, `mchc`, `mcv` | Standard CBC indices computed directly from `hemoglobin`, `hematocrit`, `rbc` by the lab analyzer (MCH = Hgb/RBC×10, MCHC = Hgb/Hct×100, MCV = Hct/RBC×10) |
-| `perc_basophils`, `perc_eosinophils`, `perc_lymphocytes`, `perc_monocytes`, `perc_neutrophils` | Each is `count / wbc × 100` |
-| `non_hdl`, `hdl_ratio` | `non_hdl = total_chol - hdl`; `hdl_ratio = total_chol / hdl` |
+**Checked, no exclusion needed:** pairwise correlations between the 6
+stimulation conditions within each of the 24 kept cell types (360 pairs).
+46 pairs exceeded r=0.9, overwhelmingly `ifn_alpha` vs. `ifn_gamma` (~20/24
+cell types) — consistent with both interferon types converging on shared
+STAT1 phosphorylation signaling, real biology, not an arithmetic identity
+(max correlation 0.976, well short of the near-1.0 exact-duplicate
+threshold that justified exclusions elsewhere). Left unblacklisted, same
+standard applied to the clinical electrolyte cluster earlier in the
+project.
 
-**Checked but NOT excluded — `ldl` and `total_chol` both retained:**
-verified against `bn_ready_baseline.csv` (n=91 complete cases) that these
-are *not* a simple Friedewald calculation of each other. Residual
-`total_chol - (hdl + ldl + triglycerides/5)` has real spread (up to 23.4
-mg/dL off, correlation 0.993 but not ≈1.0), and the residual grows with
-triglyceride level even below the classic Friedewald breakdown point
-(TG>400) — consistent with a Martin-Hopkins (variable-divisor) LDL
-calculation or a direct assay, neither of which is reproducible from the
-three columns in this dataset alone. This is a genuine, if partially
-correlated, degree of freedom — unlike NLR/MCHC/percentages, which are
-exact closed-form identities.
+**Results:**
+```
+Tabu: 721 edges, BIC-cg = 10238.35   <- positive BIC-cg
+MMHC: 141 edges, BIC-cg = 6671.32
+avg_opt (t=0.5): 349 edges
+avg_conservative (t=0.875): 145 edges
+Held-out loss: mean = -83.477, sd = 15.445  (broad but smooth distribution,
+                                              no outlier spike)
+```
 
-**Effect on structure learning (L1a, before vs. after this config change):**
-
-| | Before | After |
-|---|---|---|
-| Nodes | 47 (3 roots + 44 continuous) | 37 (3 roots + 34 continuous) |
-| Tabu edges | 132 | 80 |
-| MMHC edges | 40 | 29 |
-| CV loss mean / sd | 565,915.79 / 5,655,016.09 | **85.115 / 5.679** |
-
-The CV loss collapse (sd was ~10x the mean before, ~7% of the mean after) is
-the headline result — strongly suggests the originally-reported "one
-catastrophic CV fold" instability (documented in the original project
-handoff, attributed there to a high node-to-sample ratio) was actually
-being driven substantially by these deterministic/collinear columns rather
-than sample size alone. Worth revisiting that original framing.
-
-**Documentation-only, no functional effect:** `DETERMINISTIC_EXCLUDE` was
-also updated to list all 10 newly-excluded columns for documentation
-purposes, matching the existing NLR entry. Per the project's own prior
-finding, **this list is never read by any code** — only a column's absence
-from `CONTINUOUS_MAP` actually excludes it. This was caught during this
-session (an early draft of this fix only updated `DETERMINISTIC_EXCLUDE`
-and would have been a silent no-op) — flagging again here since it's a
-recurring failure mode on this project.
+**On the positive BIC-cg — directly investigated, not assumed benign:**
+pulled `fit_tabu`'s per-node residual sd and parent counts directly.
+Smallest sd values were all in the 0.04-0.05 range (~100,000x larger than
+L5's original 3.13e-07 failure signature). Several nodes sit exactly at the
+`maxp=10` ceiling, confirming the cap is actively constraining the search.
+The lowest-sd node was also at the parent-count ceiling, and its sd (0.040)
+was still entirely ordinary. Conclusion: the positive BIC-cg reflects BIC's
+complexity penalty behaving atypically at this node-to-sample ratio on the
+single full-data fit, not a hidden numerical problem.
 
 ---
 
-## 3. `03_model_comparison_cv.Rmd`
+## Summary table
 
-This file needed the most fixes, all in the same family: filenames that had
-drifted to include a `_cv` suffix (per your naming decision to keep CV
-output from colliding with bootstrap output), and the `avg_85` →
-`avg_conservative` rename from Section 1 above, without every reference in
-this file being updated to match. Fixed in the order they were hit:
+| Network | Nodes | Samples | Ratio | Tabu edges | avg_conservative | CV loss mean | CV loss sd | Status |
+|---|---|---|---|---|---|---|---|---|
+| L1a | 37 | 81 | 0.46 | 80 | 55 (t=0.625) | 85.1 | 5.7 | ✅ Verified |
+| L1b | 25 | 87 | 0.29 | 49 | 29 (t=0.675) | 58.9 | 2.8 | ✅ Verified |
+| L2 | 37 | 88 | 0.42 | 91 | 60 (t=0.575) | 32.4 | 6.4 | ✅ Verified |
+| L3a | 71 | ~75 | ~1.05 | — | — | catastrophic | catastrophic | ❌ Broken, unresolved |
+| L3b | 59 | ~79 | ~0.75 | — | — | — | — | ⚠️ Never rendered |
+| L4 | 53 | 86 | 0.62 | 139 | 89 (t=0.575) | -131.7 | 3.6 | ✅ Verified |
+| L5 | 91 | 88 | 1.03 | 431 | 130 (t=0.875) | 61.2 | 15.9 | ✅ Verified |
+| L6 | 147 | 77 | 1.9 | 721 | 145 (t=0.875) | -83.5 | 15.4 | ✅ Verified |
 
-| Location | Was | Now |
-|---|---|---|
-| Section 1 (`load-models`) | `pattern = "_models\\.rds$"` | `pattern = "_models_cv\\.rds$"` (and matching `gsub()`) |
-| Section 2 (`summary-table`) | `narcs(m$avg_85)` | `narcs(m$avg_conservative)` |
-| Section 2 (`summary-table`) | `readRDS(sprintf("output/models/%s_data.rds", nm))` | `readRDS(sprintf("output/models/%s_data_cv.rds", nm))` |
-| Section 4 (`sanity-queries`) | `readRDS("output/models/L1b_clinical_curated_data.rds")` | `readRDS("output/models/L1b_clinical_curated_data_cv.rds")` |
-| Section 6 (`handoff`) | `pattern = "_node_mapping\\.csv$"` | `pattern = "_node_mapping_cv\\.csv$"` |
-| Section 6 (`handoff`) | example `cat()` string referencing `L1b_clinical_curated_models.rds` | updated to `..._models_cv.rds` |
-
-**Section 5 (CV loss boxplot across networks)** was temporarily dropped from
-one version of the file mid-session and restored to its correct position
-between Sections 4 and 6, content unchanged (it has no filename
-dependencies, so it needed no fixes).
-
-**Not changed, checked and confirmed fine:**
-- Section 3's hardcoded network names (`L1a_clinical_full`,
-  `L1b_clinical_curated`) — these match the names produced by Section 1's
-  `gsub()` correctly, since `NETWORK_ID` values were never actually renamed
-  with a `_cv` suffix, only the *saved file* names were.
-- Section 6's generic `list.files("output/models", pattern = "\\.rds$")` —
-  intentionally broad, matches both `_data_cv.rds` and `_models_cv.rds`
-  files correctly as-is.
-
-**Final render result (all three networks loaded successfully):**
-- Cross-level edge comparison: L1a (80 edges) vs. L1b (49 edges) → 22 shared,
-  58 L1a-only, 27 L1b-only.
-- All 4 sanity queries ran; 3 of 4 showed the expected direction with a
-  clear margin (CRP by age, hemoglobin by sex, CRP by age+CMV jointly — the
-  last of these on a narrow ~0.02 margin, worth treating as weak evidence
-  rather than a clean pass given n~90). Lymphocyte/CMV query has no
-  hardcoded PASS/FAIL check in the original file, just directional output.
+All six working networks show healthy, non-catastrophic CV loss, confirmed
+both numerically (console output) and visually (edge-strength and loss
+histograms all show the expected shape — signal/noise separation in edge
+strength, smooth single-cluster loss distributions with no outlier spike).
+`maxp=10` is confirmed present and re-verified via full rerun in all six;
+it changed results only for L5 and L6 (the two networks with ratio > 1.0),
+exactly as predicted from the node-to-sample ratio reasoning.
 
 ---
 
-## Not changed / explicitly out of scope this session
+## Output artifacts — what the histograms and edge CSV show
 
-- **`config/L1b_clinical_curated_v2.R`** — not edited. L1b already excludes
-  `basophils` from its differential-count panel (curation predates this
-  session), and the WBC blacklist rule's `intersect()` logic handles the
-  remaining 5-node subset correctly without needing a config change.
-- **`config/L2_olink_v2.R`** — not edited, not even reviewed for
-  Olink-specific redundancy (e.g. related biomarker isoforms). L2 was never
-  affected by anything in this session beyond the two shared `.Rmd` fixes
-  (threshold logic, WBC blacklist — which correctly no-ops for L2 since it
-  has none of the relevant CBC nodes).
-- **`bn_learning/` (bootstrap pipeline)** — entirely untouched. The
-  deterministic-column exclusions made to L1a's config in this session are
-  **not** mirrored in the bootstrap pipeline's version of the same config,
-  if one exists separately. If bootstrap-vs-CV comparisons are planned, this
-  is a real inconsistency to resolve first.
-- **`chloride`/`sodium`/`potassium` cycle warnings** (electrolyte cluster,
-  correlation-driven but not deterministic) — deliberately left unfixed.
-  Judged to be real (if noisy) physiological co-variation rather than a
-  calculated-metric artifact; blacklisting would suppress potentially
-  genuine signal. `averaged.network()`'s built-in cycle-skip handles these
-  gracefully as-is.
-- **`neutrophils -> sodium` cycle warning** (L1a) — checked against raw
-  data (correlation only -0.365, no data-quality red flags), concluded to
-  be sampling noise at n=81 rather than a systematic issue. Left as-is for
-  the same reason as the electrolyte cluster.
-- **L2's CV loss variance** (sd/mean ≈ 20%, higher than L1a/L1b's ~5-7%
-  post-fix) — flagged as worth a closer look (checked, appears to be a
-  smooth spread across folds rather than a single dominant outlier fold,
-  unlike L1a's original problem) but no action taken.
+Each network's render produces two histograms (`output/figures/`) and,
+per your notes, a CSV export of edges. Here's what each actually shows:
 
----
+### Edge-strength histogram (`*_edge_strength_hist_cv.png`)
 
-## Open items / stale inconsistencies noticed but not resolved
+X-axis: CV edge strength (0–1) — for every candidate edge in the network,
+the fraction of the 100 CV-fold structures (10 folds × 10 runs) in which
+that edge appeared. Y-axis: how many candidate edges fall at each strength
+value.
 
-- **L1a config header comment mismatch:** the file's top-of-file comment
-  says "3 roots + 47 clinical continuous nodes," and an inline comment
-  (pre-existing, before this session's edits) said "47 = 53 - 6
-  exclude_candidates" — but `CONTINUOUS_MAP` only ever had 44 entries
-  before this session's changes (now 34). This discrepancy predates this
-  session and was not investigated further.
+**What the shape means:** every network shows the same characteristic
+pattern — a tall spike near 0 (candidate edges that almost never survive a
+fold, i.e. noise), a thin scattered middle, and a smaller secondary cluster
+near 1.0 (edges that survive nearly every fold — the real, stable signal).
+This is the basis for the empirical-valley threshold: `avg_conservative`
+is drawn at whatever strength value sits in the local minimum between the
+noise spike and the signal cluster, found per-network rather than using
+bootstrap's fixed 0.85 (the dashed red reference line on each plot — note
+this line is a fixed visual marker across all plots, **not** each
+network's actual conservative cutoff, which varies: 0.625 for L1a, 0.875
+for L5/L6, etc. — see the per-network sections above for the real values).
+
+### Loss histogram (`*_loss_hist_cv.png`)
+
+X-axis: held-out log-likelihood loss (`logl`) for a single CV fold — lower
+is a better fit to that fold's held-out data. Y-axis: how many of the 100
+folds produced that loss value. This is the direct visualization of
+`fold_losses`, the vector whose `mean()`/`sd()` are reported in the console
+output (e.g. L1a: 85.115/5.679).
+
+**What the shape means:** a healthy network shows a smooth, roughly
+single-peaked distribution with no isolated outlier bar far to one side —
+that's what all six working networks show now. This histogram is what
+originally exposed L1a's and L5's pre-fix instability: those networks'
+loss histograms would have shown one lone bar out at an extreme value
+(millions/billions), separated by empty space from the rest of the
+distribution clustered near zero — the visual signature of one or a
+handful of folds producing a near-singular model fit and blowing up the
+mean while the other ~95+ folds fit normally. That specific failure
+pattern is what the fold-loss-sorting diagnostic (used on L1a and L5) was
+built to isolate once it showed up.
+
+### Edge CSV export (`*_literature_edges_cv.csv`)
+
+**Verified against the actual L5 file** (8,190 rows, 5 columns:
+`from`, `to`, `strength`, `direction`, `in_final_dag`).
+
+**One row per directed node pair, both directions, for every possible pair
+in the network** — not filtered to any threshold. For L5's 91 nodes, that's
+91×90 = 8,190 rows exactly (4,095 unique undirected pairs × 2 directions
+each). This is the full underlying `cv_str` object exported wholesale,
+the same data the edge-strength histogram is binned from.
+
+**Columns:**
+- `strength` — CV edge strength (0–1), identical to what's plotted in the
+  edge-strength histogram. Same value for both directional rows of a given
+  pair (e.g. `A→B` and `B→A` both show the same `strength`).
+- `direction` — conditional probability the edge points `from`→`to`,
+  *given* the undirected edge exists at all. The two directional rows for
+  a pair sum to 1.0 (e.g. if `A→B` has `direction = 0.92`, `B→A` for the
+  same pair has `direction = 0.08`).
+- `in_final_dag` — boolean, whether this specific directed edge made it
+  into the network's **`avg_conservative`** DAG specifically (confirmed:
+  exactly 130 rows are `TRUE` in the L5 file, matching L5's reported
+  `avg_conservative` count of 130 at t=0.875 exactly; the lowest-strength
+  `TRUE` rows sit right at 0.88, consistent with that threshold). This is
+  **not** `avg_opt` (which has 297 edges for L5) — worth being careful
+  about that distinction if using this column to reconstruct or filter to
+  a specific network variant.
+
+**Practical implication:** since every pair appears in both directions,
+naive counts on this file (e.g. `nrow(df)` or a simple `strength > 0`
+filter) will double anything you'd compare against the "edges" numbers
+reported in the console/README, which count each undirected pair once.
+Use `in_final_dag == TRUE` to match `avg_conservative`'s reported count
+directly, or dedupe by unordered pair first for other comparisons.
+
+
+- **L3a is broken and needs the L5-style diagnostic treatment** (fold-loss
+  sorting, per-node sd/parent-count check) before it can be trusted or used.
+- **L3b has never been run at all.**
+- **L1b's config was never reviewed for the deterministic-column issue**
+  found in L1a (MCHC-style exact formulas) — currently only excludes NLR.
+  L2 and L4 are low-risk by data type; L1b, being a clinical panel like
+  L1a, is the one most worth a second look.
+- **A combined all-modalities network** (L1a/L1b + L2 + L4 + L5 + L6) was
+  scoped but not built — complete-case n across all modalities combined is
+  ~75-79/92 (verified against real data, correcting an earlier erroneous
+  check that used the raw non-backfilled CMV column), but total node count
+  would be ~340-374, a node-to-sample ratio of ~5:1 — far beyond anything
+  validated so far (L6's 1.9 was the highest tested). Would very likely
+  need a much lower `maxp` than 10, or substantial further node curation,
+  before being attempted.
