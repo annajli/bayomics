@@ -1,0 +1,340 @@
+---
+title: "BN L5 Data Preparation"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L1b_clinical_curated.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_knit$set(root.dir = here::here("bn_learning"))
+library(readr)
+library(dplyr)
+library(tidyr)
+library(bnlearn)
+```
+
+# 1. Load config
+
+```{r load-config}
+source(params$config)
+cat(sprintf("Network: %s (seed=%d)\n", NETWORK_ID, SEED))
+cat(sprintf("Roots: %s\n", paste(ROOTS, collapse = ", ")))
+cat(sprintf("Continuous nodes: %d\n", length(CONTINUOUS_MAP)))
+cat(sprintf("Log-transform: %s\n", paste(LOG_TRANSFORM, collapse = ", ")))
+```
+
+# 2. Load baseline data
+
+```{r load-data}
+bn_raw <- read_csv(
+  file.path("..", "data", "processed", "bn_ready_baseline.csv"),
+  show_col_types = FALSE
+)
+stopifnot(nrow(bn_raw) == 92)
+cat(sprintf("Loaded bn_ready_baseline.csv: %d x %d\n", nrow(bn_raw), ncol(bn_raw)))
+```
+
+# 3. Backfill CMV from raw metadata
+
+CMV IgG serology was measured at non-baseline visits for most subjects.
+CMV serostatus is a stable trait — backfill from whichever visit has the measurement.
+4 subjects (BR1049, BR1056, BR1058, BR1059) have no CMV at any visit — they remain
+NA and will be dropped at the complete-case step (CMV is a required root node).
+
+```{r backfill-cmv}
+meta_raw <- read_csv(
+  file.path("..", "data", "raw", "sound_life_labs_metadata.csv"),
+  show_col_types = FALSE
+)
+
+cmv_lookup <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  distinct(subject.subjectGuid, .keep_all = TRUE) %>%
+  select(subject.subjectGuid, cmv_backfill = cmv.igg_serology_interpretation)
+
+# Report coverage (88/92 have CMV; 4 subjects have no CMV at any visit)
+n_with_cmv <- sum(bn_raw$subject.subjectGuid %in% cmv_lookup$subject.subjectGuid)
+n_without <- nrow(bn_raw) - n_with_cmv
+cat(sprintf("CMV available for %d / %d subjects (%d without CMV at any visit)\n",
+            n_with_cmv, nrow(bn_raw), n_without))
+if (n_without > 0) {
+  missing_guids <- setdiff(bn_raw$subject.subjectGuid, cmv_lookup$subject.subjectGuid)
+  cat(sprintf("  Subjects without CMV: %s\n", paste(missing_guids, collapse = ", ")))
+}
+
+# Verify no conflicts among subjects that DO have CMV
+n_status <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  group_by(subject.subjectGuid) %>%
+  summarise(n_unique = n_distinct(cmv.igg_serology_interpretation), .groups = "drop")
+stopifnot(all(n_status$n_unique == 1))
+
+# Merge and overwrite (left join — subjects without CMV stay NA)
+bn_raw <- bn_raw %>%
+  left_join(cmv_lookup, by = "subject.subjectGuid") %>%
+  mutate(cmv.igg_serology_interpretation = cmv_backfill) %>%
+  select(-cmv_backfill)
+
+cat(sprintf("CMV after backfill: %d non-NA / %d\n",
+            sum(!is.na(bn_raw$cmv.igg_serology_interpretation)), nrow(bn_raw)))
+cat("CMV distribution:\n")
+print(table(bn_raw$cmv.igg_serology_interpretation, useNA = "ifany"))
+```
+
+# 4. Select and rename nodes
+
+```{r select-nodes}
+# Build column selection: full csv name -> short alias
+col_selection <- NODE_MAP  # named vector: alias = csv_col
+
+# Verify all columns exist in data
+missing_cols <- setdiff(col_selection, names(bn_raw))
+if (length(missing_cols) > 0) {
+  stop(sprintf("Columns not found in data: %s", paste(missing_cols, collapse = ", ")))
+}
+
+# Select and rename
+bn_df <- bn_raw %>%
+  select(all_of(unname(col_selection))) %>%
+  rename(!!!setNames(unname(col_selection), names(col_selection)))
+
+# Coerce continuous nodes to numeric (double) — bnlearn CLG rejects integer columns
+continuous_nodes <- setdiff(names(bn_df), ROOTS)
+bn_df <- bn_df %>%
+  mutate(across(all_of(continuous_nodes), as.numeric))
+
+cat(sprintf("Selected %d columns (aliases): %s\n",
+            ncol(bn_df), paste(names(bn_df), collapse = ", ")))
+```
+
+# 5. Apply log1p transforms
+
+```{r log-transform}
+if (length(LOG_TRANSFORM) > 0) {
+  for (var in LOG_TRANSFORM) {
+    stopifnot(var %in% names(bn_df))
+    bn_df[[var]] <- log1p(bn_df[[var]])
+    cat(sprintf("  log1p(%s): range [%.2f, %.2f]\n",
+                var, min(bn_df[[var]], na.rm = TRUE), max(bn_df[[var]], na.rm = TRUE)))
+  }
+}
+```
+
+# 5b. Sibling log-ratio transform (compositional hierarchies)
+
+Only applies when the current config defines `PARENT_MAP` (freq/L5 does;
+clinical/Olink/wb/pb don't) — defensively checked, safely no-ops otherwise.
+
+Freq's cell-type frequencies are already log-transformed (confirmed: 93/121
+columns contain negative values, consistent with log(percentage) going
+negative for rare cell types below ~1%). Log-transformed sibling values
+under a shared parent are still compositionally redundant (children +
+parent, and children vs. each other, aren't independent — see session notes
+on the ~0.87 correlation between exp(sum of children) and exp(parent)).
+`02_structure_learning_cv.Rmd`'s Rule 4 blacklist only blocked direct
+parent-child edges; it did not address the sibling-vs-sibling redundancy,
+which turned out to still leave the network badly unstable.
+
+Fix: additive log-ratio (ALR) transform. For each sibling group, pick a
+reference sibling and replace every other sibling with
+`log(sibling) - log(reference)` (== plain subtraction, since these columns
+are already log-scale). The reference sibling is then dropped entirely —
+this actually removes the redundant degree of freedom (n siblings -> n-1
+independent nodes), rather than just telling the algorithm not to connect
+them.
+
+SCOPE NOTE: `PARENT_MAP` as built only covers L2-under-L1 and L3-under-L2.
+The 9 L1 categories are themselves compositionally constrained (all broad
+cell lineages should sum to ~100% of total cells) but have no entry in
+`PARENT_MAP`, since they sit at the top of the hierarchy with no parent of
+their own. This section adds an implicit top-level group (all continuous
+nodes that appear as a PARENT_MAP *value* but never as a *key* -- i.e. never
+themselves have a parent) and ALR-transforms that group the same way. This
+heuristic is specific to freq's structure (all L1 categories are mutually
+compositional by construction); it isn't guaranteed to generalize correctly
+if `PARENT_MAP` is ever reused for a differently-shaped hierarchy later.
+
+REFERENCE SELECTION: highest-mean-abundance sibling per group (more
+abundant cell types are measured more reliably / less noise-prone as a
+baseline) -- a defensible default, not a verified-optimal choice. Override
+this rule directly below if a specific biologically-meaningful reference
+per group is preferred instead.
+
+```{r sibling-log-ratio}
+if (exists("PARENT_MAP")) {
+  cat("Applying additive log-ratio (ALR) transform for compositional hierarchy...\n\n")
+
+  # Group children by their immediate parent (covers L2-under-L1, L3-under-L2)
+  child_groups <- split(names(PARENT_MAP), unlist(PARENT_MAP))
+
+  # Implicit top-level group: nodes that are a PARENT_MAP value (someone's
+  # parent) but never a key (never themselves have a parent) -- for freq,
+  # this correctly isolates the 9 L1 nodes.
+  top_level_nodes <- setdiff(unique(unlist(PARENT_MAP)), names(PARENT_MAP))
+  top_level_nodes <- intersect(top_level_nodes, names(bn_df))
+  if (length(top_level_nodes) >= 2) {
+    child_groups[["__top_level__"]] <- top_level_nodes
+    cat(sprintf("Top-level group identified: %d nodes (%s)\n\n",
+                length(top_level_nodes), paste(top_level_nodes, collapse = ", ")))
+  }
+
+  n_refs_dropped <- 0
+  n_siblings_transformed <- 0
+  # Tracks new_alr_name -> reference_used, so Section 8's export can report
+  # it accurately instead of leaving it blank.
+  alr_reference_map <- c()
+
+  for (grp in names(child_groups)) {
+    children <- intersect(child_groups[[grp]], names(bn_df))
+    if (length(children) < 2) next
+
+    means <- sapply(children, function(c) mean(bn_df[[c]], na.rm = TRUE))
+    ref <- names(which.max(means))
+    others <- setdiff(children, ref)
+
+    for (child in others) {
+      new_name <- paste0(child, "_alr")
+      bn_df[[new_name]] <- bn_df[[child]] - bn_df[[ref]]
+      bn_df[[child]] <- NULL
+      alr_reference_map[new_name] <- ref
+    }
+    bn_df[[ref]] <- NULL
+
+    n_refs_dropped <- n_refs_dropped + 1
+    n_siblings_transformed <- n_siblings_transformed + length(others)
+
+    cat(sprintf("  Group '%s': reference = %s (dropped), %d siblings -> ALR nodes\n",
+                grp, ref, length(others)))
+  }
+
+  cat(sprintf("\nALR transform complete: %d reference nodes dropped, %d sibling nodes converted to log-ratios\n",
+              n_refs_dropped, n_siblings_transformed))
+  cat(sprintf("Node count after ALR: %d\n", ncol(bn_df)))
+} else {
+  cat("No PARENT_MAP defined for this config -- skipping sibling log-ratio transform.\n")
+  alr_reference_map <- c()  # defined empty so Section 8's lookup never fails
+}
+```
+
+# 6. Set factor levels for discrete roots
+
+```{r factor-roots}
+for (root in ROOTS) {
+  ref <- REFERENCE_LEVELS[[root]]
+  lvls <- sort(unique(bn_df[[root]]))
+  # Put reference level first
+  lvls <- c(ref, setdiff(lvls, ref))
+  bn_df[[root]] <- factor(bn_df[[root]], levels = lvls)
+  cat(sprintf("  %s: levels = %s (ref = %s)\n",
+              root, paste(levels(bn_df[[root]]), collapse = ", "), ref))
+}
+```
+
+# 7. Complete-case analysis
+
+```{r complete-case}
+n_before <- nrow(bn_df)
+per_col_missing <- colSums(is.na(bn_df))
+if (any(per_col_missing > 0)) {
+  cat("Per-column missingness (non-zero only):\n")
+  for (nm in names(per_col_missing[per_col_missing > 0])) {
+    cat(sprintf("  %s: %d / %d (%.1f%%)\n",
+                nm, per_col_missing[nm], n_before, 100 * per_col_missing[nm] / n_before))
+  }
+}
+
+# Coerce to a plain data.frame: read_csv/dplyr produce a tibble, but bnlearn's
+# C backend does not support tibbles (bn.fit throws "REAL() can only be applied
+# to a 'numeric', not a 'integer'" on conditional-Gaussian nodes).
+bn_complete <- as.data.frame(bn_df[complete.cases(bn_df), ])
+n_after <- nrow(bn_complete)
+cat(sprintf("\nComplete cases: %d / %d (dropped %d)\n", n_after, n_before, n_before - n_after))
+
+# Warn if losing more than 15% of samples
+if ((n_before - n_after) / n_before > 0.15) {
+  warning(sprintf("Dropping %.1f%% of samples — consider imputation or excluding high-missingness columns",
+                  100 * (n_before - n_after) / n_before))
+}
+```
+
+# 8. Summary and export
+
+```{r export}
+cat(sprintf("Final data: %d samples x %d nodes (%d roots + %d continuous)\n",
+            nrow(bn_complete), ncol(bn_complete),
+            length(ROOTS), ncol(bn_complete) - length(ROOTS)))
+cat(sprintf("Root balance:\n"))
+for (root in ROOTS) {
+  cat(sprintf("  %s:\n", root))
+  print(table(bn_complete[[root]]))
+}
+
+# Save analysis-ready data
+out_path <- file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID))
+saveRDS(bn_complete, out_path)
+cat(sprintf("\nSaved: %s\n", out_path))
+
+# Also save the node mapping for traceability.
+# NOTE: built from the ORIGINAL config-declared NODE_MAP, then reconciled
+# against the final bn_complete columns -- if the sibling log-ratio
+# transform (Section 5b) ran, some original nodes were dropped (references)
+# and others renamed (*_alr siblings), so a naive NODE_MAP echo would no
+# longer match the actual exported data. This keeps the mapping accurate
+# for both the untransformed case (clinical/Olink/wb/pb) and the ALR case
+# (freq) without duplicating the transform logic here.
+final_cols <- names(bn_complete)
+
+mapping_rows <- lapply(final_cols, function(col) {
+  if (col %in% names(NODE_MAP)) {
+    # Untouched node -- present in NODE_MAP under its original alias
+    data.frame(
+      alias = col,
+      csv_column = NODE_MAP[[col]],
+      type = ifelse(col %in% ROOTS, "discrete_root", "continuous"),
+      log_transformed = col %in% LOG_TRANSFORM,
+      alr_transformed = FALSE,
+      alr_reference = NA_character_,
+      stringsAsFactors = FALSE
+    )
+  } else if (grepl("_alr$", col)) {
+    # ALR-derived node -- original alias is the column name minus "_alr"
+    orig <- sub("_alr$", "", col)
+    data.frame(
+      alias = col,
+      csv_column = if (orig %in% names(NODE_MAP)) NODE_MAP[[orig]] else NA_character_,
+      type = "continuous",
+      log_transformed = orig %in% LOG_TRANSFORM,
+      alr_transformed = TRUE,
+      alr_reference = if (col %in% names(alr_reference_map)) alr_reference_map[[col]] else NA_character_,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    # Shouldn't happen, but don't silently drop an unrecognized column
+    data.frame(
+      alias = col, csv_column = NA_character_, type = "unknown",
+      log_transformed = NA, alr_transformed = NA, alr_reference = NA_character_,
+      stringsAsFactors = FALSE
+    )
+  }
+})
+mapping_df <- do.call(rbind, mapping_rows)
+
+# Also record which reference nodes were dropped entirely (present in
+# NODE_MAP, absent from bn_complete, and NOT because of complete-case
+# missingness) -- these are the ALR reference siblings, not lost data.
+dropped_as_reference <- setdiff(names(NODE_MAP), final_cols)
+dropped_as_reference <- dropped_as_reference[sapply(dropped_as_reference, function(n) {
+  # crude check: was it dropped by ALR (Section 5b ran) vs missingness?
+  exists("PARENT_MAP") && (n %in% names(PARENT_MAP) || n %in% unique(unlist(if (exists("PARENT_MAP")) PARENT_MAP else list())))
+})]
+if (length(dropped_as_reference) > 0) {
+  cat(sprintf("Dropped as ALR reference (expected, not missing data): %s\n",
+              paste(dropped_as_reference, collapse = ", ")))
+}
+
+write_csv(mapping_df, file.path("output", "mappings", sprintf("%s_node_mapping.csv", NETWORK_ID)))
+cat(sprintf("Saved node mapping: output/mappings/%s_node_mapping.csv\n", NETWORK_ID))
+```
