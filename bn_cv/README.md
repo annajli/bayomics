@@ -325,31 +325,3 @@ strength, smooth single-cluster loss distributions with no outlier spike).
 it changed results only for L5 and L6 (the two networks with ratio > 1.0),
 exactly as predicted from the node-to-sample ratio reasoning.
 
----
-
-## Explicitly open items, not yet resolved
-
-- **L3a is broken and needs the L5-style diagnostic treatment** (fold-loss
-  sorting, per-node sd/parent-count check) before it can be trusted or used.
-- **L3b has never been run at all.**
-- **L1b's config was never reviewed for the deterministic-column issue**
-  found in L1a (MCHC-style exact formulas) — currently only excludes NLR.
-  L2 and L4 are low-risk by data type; L1b, being a clinical panel like
-  L1a, is the one most worth a second look.
-- **Cross-modality collinearity has never been checked** for L3a or L3b —
-  everything verified so far (WBC, MCHC, lipid ratios, freq's hierarchy)
-  was within a single modality. A specific clinical marker could plausibly
-  be highly correlated with a specific Olink protein for real biological
-  reasons, and this hasn't been investigated in either direction.
-- **The bootstrap pipeline (`bn_learning/`) does not have any of this
-  project's fixes mirrored into it.** Any bootstrap-vs-CV comparison
-  planned for L1a specifically would currently be comparing networks built
-  from different node sets until reconciled.
-- **A combined all-modalities network** (L1a/L1b + L2 + L4 + L5 + L6) was
-  scoped but not built — complete-case n across all modalities combined is
-  ~75-79/92 (verified against real data, correcting an earlier erroneous
-  check that used the raw non-backfilled CMV column), but total node count
-  would be ~340-374, a node-to-sample ratio of ~5:1 — far beyond anything
-  validated so far (L6's 1.9 was the highest tested). Would very likely
-  need a much lower `maxp` than 10, or substantial further node curation,
-  before being attempted.
