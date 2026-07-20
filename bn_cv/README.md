@@ -325,3 +325,100 @@ strength, smooth single-cluster loss distributions with no outlier spike).
 it changed results only for L5 and L6 (the two networks with ratio > 1.0),
 exactly as predicted from the node-to-sample ratio reasoning.
 
+---
+
+## Output artifacts — what the histograms and edge CSV show
+
+Each network's render produces two histograms (`output/figures/`) and,
+per your notes, a CSV export of edges. Here's what each actually shows:
+
+### Edge-strength histogram (`*_edge_strength_hist_cv.png`)
+
+X-axis: CV edge strength (0–1) — for every candidate edge in the network,
+the fraction of the 100 CV-fold structures (10 folds × 10 runs) in which
+that edge appeared. Y-axis: how many candidate edges fall at each strength
+value.
+
+**What the shape means:** every network shows the same characteristic
+pattern — a tall spike near 0 (candidate edges that almost never survive a
+fold, i.e. noise), a thin scattered middle, and a smaller secondary cluster
+near 1.0 (edges that survive nearly every fold — the real, stable signal).
+This is the basis for the empirical-valley threshold: `avg_conservative`
+is drawn at whatever strength value sits in the local minimum between the
+noise spike and the signal cluster, found per-network rather than using
+bootstrap's fixed 0.85 (the dashed red reference line on each plot — note
+this line is a fixed visual marker across all plots, **not** each
+network's actual conservative cutoff, which varies: 0.625 for L1a, 0.875
+for L5/L6, etc. — see the per-network sections above for the real values).
+
+### Loss histogram (`*_loss_hist_cv.png`)
+
+X-axis: held-out log-likelihood loss (`logl`) for a single CV fold — lower
+is a better fit to that fold's held-out data. Y-axis: how many of the 100
+folds produced that loss value. This is the direct visualization of
+`fold_losses`, the vector whose `mean()`/`sd()` are reported in the console
+output (e.g. L1a: 85.115/5.679).
+
+**What the shape means:** a healthy network shows a smooth, roughly
+single-peaked distribution with no isolated outlier bar far to one side —
+that's what all six working networks show now. This histogram is what
+originally exposed L1a's and L5's pre-fix instability: those networks'
+loss histograms would have shown one lone bar out at an extreme value
+(millions/billions), separated by empty space from the rest of the
+distribution clustered near zero — the visual signature of one or a
+handful of folds producing a near-singular model fit and blowing up the
+mean while the other ~95+ folds fit normally. That specific failure
+pattern is what the fold-loss-sorting diagnostic (used on L1a and L5) was
+built to isolate once it showed up.
+
+### Edge CSV export (`*_literature_edges_cv.csv`)
+
+**Verified against the actual L5 file** (8,190 rows, 5 columns:
+`from`, `to`, `strength`, `direction`, `in_final_dag`).
+
+**One row per directed node pair, both directions, for every possible pair
+in the network** — not filtered to any threshold. For L5's 91 nodes, that's
+91×90 = 8,190 rows exactly (4,095 unique undirected pairs × 2 directions
+each). This is the full underlying `cv_str` object exported wholesale,
+the same data the edge-strength histogram is binned from.
+
+**Columns:**
+- `strength` — CV edge strength (0–1), identical to what's plotted in the
+  edge-strength histogram. Same value for both directional rows of a given
+  pair (e.g. `A→B` and `B→A` both show the same `strength`).
+- `direction` — conditional probability the edge points `from`→`to`,
+  *given* the undirected edge exists at all. The two directional rows for
+  a pair sum to 1.0 (e.g. if `A→B` has `direction = 0.92`, `B→A` for the
+  same pair has `direction = 0.08`).
+- `in_final_dag` — boolean, whether this specific directed edge made it
+  into the network's **`avg_conservative`** DAG specifically (confirmed:
+  exactly 130 rows are `TRUE` in the L5 file, matching L5's reported
+  `avg_conservative` count of 130 at t=0.875 exactly; the lowest-strength
+  `TRUE` rows sit right at 0.88, consistent with that threshold). This is
+  **not** `avg_opt` (which has 297 edges for L5) — worth being careful
+  about that distinction if using this column to reconstruct or filter to
+  a specific network variant.
+
+**Practical implication:** since every pair appears in both directions,
+naive counts on this file (e.g. `nrow(df)` or a simple `strength > 0`
+filter) will double anything you'd compare against the "edges" numbers
+reported in the console/README, which count each undirected pair once.
+Use `in_final_dag == TRUE` to match `avg_conservative`'s reported count
+directly, or dedupe by unordered pair first for other comparisons.
+
+
+- **L3a is broken and needs the L5-style diagnostic treatment** (fold-loss
+  sorting, per-node sd/parent-count check) before it can be trusted or used.
+- **L3b has never been run at all.**
+- **L1b's config was never reviewed for the deterministic-column issue**
+  found in L1a (MCHC-style exact formulas) — currently only excludes NLR.
+  L2 and L4 are low-risk by data type; L1b, being a clinical panel like
+  L1a, is the one most worth a second look.
+- **A combined all-modalities network** (L1a/L1b + L2 + L4 + L5 + L6) was
+  scoped but not built — complete-case n across all modalities combined is
+  ~75-79/92 (verified against real data, correcting an earlier erroneous
+  check that used the raw non-backfilled CMV column), but total node count
+  would be ~340-374, a node-to-sample ratio of ~5:1 — far beyond anything
+  validated so far (L6's 1.9 was the highest tested). Would very likely
+  need a much lower `maxp` than 10, or substantial further node curation,
+  before being attempted.
