@@ -11,7 +11,7 @@
 
 <meta name="author" content="BPGbio Capstone" />
 
-<meta name="date" content="2026-07-13" />
+<meta name="date" content="2026-07-20" />
 
 <title>BN Data Preparation</title>
 
@@ -352,7 +352,7 @@ display: none;
 
 <h1 class="title toc-ignore">BN Data Preparation</h1>
 <h4 class="author">BPGbio Capstone</h4>
-<h4 class="date">2026-07-13</h4>
+<h4 class="date">2026-07-20</h4>
 
 </div>
 
@@ -361,7 +361,7 @@ display: none;
 <h1>1. Load config</h1>
 <pre class="r"><code>source(params$config)
 cat(sprintf(&quot;Network: %s (seed=%d)\n&quot;, NETWORK_ID, SEED))</code></pre>
-<pre><code>## Network: L2_olink (seed=44)</code></pre>
+<pre><code>## Network: L2_olink_v2 (seed=44)</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Roots: %s\n&quot;, paste(ROOTS, collapse = &quot;, &quot;)))</code></pre>
 <pre><code>## Roots: age_group, sex, cmv</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Continuous nodes: %d\n&quot;, length(CONTINUOUS_MAP)))</code></pre>
@@ -537,7 +537,7 @@ out_path &lt;- file.path(&quot;output&quot;, &quot;models&quot;, sprintf(&quot;%
 saveRDS(bn_complete, out_path)
 cat(sprintf(&quot;\nSaved: %s\n&quot;, out_path))</code></pre>
 <pre><code>## 
-## Saved: output/models/L2_olink_data.rds</code></pre>
+## Saved: output/models/L2_olink_v2_data.rds</code></pre>
 <pre class="r"><code># Also save the node mapping for traceability
 mapping_df &lt;- data.frame(
   alias = names(NODE_MAP),
@@ -546,9 +546,9 @@ mapping_df &lt;- data.frame(
   log_transformed = names(NODE_MAP) %in% LOG_TRANSFORM,
   stringsAsFactors = FALSE
 )
-write_csv(mapping_df, file.path(&quot;output&quot;, sprintf(&quot;%s_node_mapping.csv&quot;, NETWORK_ID)))
-cat(sprintf(&quot;Saved node mapping: output/%s_node_mapping.csv\n&quot;, NETWORK_ID))</code></pre>
-<pre><code>## Saved node mapping: output/L2_olink_node_mapping.csv</code></pre>
+write_csv(mapping_df, file.path(&quot;output&quot;, &quot;mappings&quot;, sprintf(&quot;%s_node_mapping.csv&quot;, NETWORK_ID)))
+cat(sprintf(&quot;Saved node mapping: output/mappings/%s_node_mapping.csv\n&quot;, NETWORK_ID))</code></pre>
+<pre><code>## Saved node mapping: output/mappings/L2_olink_v2_node_mapping.csv</code></pre>
 </div>
 
 
