@@ -355,6 +355,109 @@ single full-data fit, not a hidden numerical problem.
 
 ---
 
+## L_all — Combined: All modalities (clinical, Olink, wb, freq, pb)
+
+**352 nodes** (3 roots + 349 continuous, after missingness filtering and the
+ALR transform), **75/92 samples** — by far the largest node-to-sample
+ratio attempted in this project (~4.7:1, vs. L6's previous high of 1.9).
+Built from `config/L_all.R` (`MAXP = 5`, tighter than every other
+network's 10, specifically because of this ratio), `01_data_prep_all_cv.Rmd`
+(programmatic column discovery + ALR transform, mirroring L5's logic), and
+a dedicated `02_structure_learning_all_cv.Rmd` (loads the `.rds`
+`01_data_prep_all_cv.Rmd` prepares rather than re-deriving `bn_df`, since
+this config has no static `CONTINUOUS_MAP` for the shared file to use).
+
+**Two real bugs found and fixed before this network could be trusted:**
+
+1. **WBC-cluster blacklist rule needed CSV-column-based detection, not
+   alias-string matching.** `01_data_prep_all_cv.Rmd`'s programmatic alias
+   generator produces names like `bc_wbc`/`bc_neutrophil_count` (strips
+   `clinical.` prefix, converts remaining dots to underscores) — not the
+   short hand-picked names (`wbc`, `neutrophils`) the shared file's Rule 3
+   is hardcoded to look for. Matching on those literal strings would have
+   silently found zero nodes and no-op'd, even though the underlying WBC
+   redundancy is still fully present. Fixed by looking up the cluster via
+   its actual CSV column identity (`clinical.bc.wbc`, etc.) through the
+   exported `node_mapping.csv`, which is correct regardless of alias.
+   Confirmed working: `WBC cluster present: bc_basophil_count,
+   bc_eosinophil_count, bc_lymphocyte_count, bc_monocyte_count,
+   bc_neutrophil_count, bc_wbc (30 blacklist rows)`.
+
+2. **Hierarchy blacklist (Rule 4) needed ALR-aware name resolution, not
+   just alias-format matching.** `PARENT_MAP` stores each node's *original*
+   pre-ALR alias, but `01_data_prep_all_cv.Rmd`'s own ALR transform renames
+   most non-reference siblings to `{name}_alr` (and drops the chosen
+   reference entirely) — so a node can be a hierarchy *parent* on one level
+   while also being a *renamed sibling* one level up. A naive
+   `intersect(names(PARENT_MAP), all_nodes)` check silently missed any pair
+   where either side got renamed, catching only 3 of the real pairs on the
+   first attempt. Confirmed via the edge CSV: `l3_intermediate_monocyte <->
+   l2_intermediate_monocyte_alr` sat unprotected at strength 1.0 — the
+   child kept its clean name (single-child group, untouched by ALR), but
+   its parent had been renamed one level up. Fixed with a
+   `resolve_current_name()` fallback that checks for the `_alr`-suffixed
+   version before giving up. After the fix: **60 pairs, 120 blacklist rows**
+   (a 20x increase from the broken first attempt).
+
+**Effect of the hierarchy-blacklist fix on the actual results — the loss
+went UP, and that's the correct direction:**
+
+| | Before fix (3 pairs) | After fix (60 pairs) |
+|---|---|---|
+| Tabu edges | 1531 | 1523 |
+| Tabu BIC-cg | +10158.54 | +8635.95 |
+| avg_conservative (t=0.875) | 295 | 270 |
+| CV loss mean | 6.325 | 30.306 |
+| CV loss sd | 32.382 | 31.746 |
+| **sd/mean ratio** | **5.12x** | **1.05x** |
+
+The pre-fix loss (mean=6.3) looked good but was artificially low — the
+network could exploit unprotected redundant hierarchy edges (like
+`l1_dc_alr ↔ l2_platelet`) to fit training folds without doing genuine
+predictive work, producing a falsely optimistic, high-variance result.
+Post-fix, the loss is higher and the sd/mean ratio actually improved
+substantially in relative terms (5.12x → 1.05x) — but in absolute terms,
+~105% is still the loosest ratio of any verified network in the project
+except L3a's outlier-skewed one (see the Summary table's full ranking).
+"Improved a lot" and "now tight in absolute terms" are different claims —
+this result is the former, not the latter. The honest read: fixing the
+bug made the number trustworthy, not small — L_all's CV loss is real and
+defensible, but still the least stable of any working network, consistent
+with having by far the most extreme node-to-sample ratio attempted.
+
+**Final results:**
+```
+HC: 1518 edges, BIC-cg = 8633.38     <- still positive, verified benign (below)
+Tabu: 1523 edges, BIC-cg = 8635.95
+MMHC: 328 edges, BIC-cg = 2654.40
+avg_opt (t=0.5): 682 edges
+avg_conservative (t=0.875): 270 edges
+Held-out loss: mean = 30.306, sd = 31.746
+```
+
+**The remaining positive BIC-cg was directly investigated, not assumed
+benign.** Checked `fit_tabu`'s per-node residual sd (smallest values
+300-3000x larger than L5's actual degenerate case, ruling out numerical
+singularity) and, going one step further than the L4/L6 checks, computed
+**variance explained** (`1 - (fitted_sd/raw_sd)²`) for the tightest-fitting
+nodes — nearly all of which turned out to be `wb` Hallmark pathway scores,
+several sitting at the `maxp=5` parent-count ceiling. Variance explained
+ranged 25-81%, clustering around 55-72% — consistent with real, correlated
+biology (Hallmark gene sets deliberately share member genes and overlapping
+pathways; e.g. `mtorc1_signaling` and `pi3k_akt_mtor_signaling` are
+adjacent nodes in the same growth-signaling cascade) rather than the 99%+
+near-tautological fit that would indicate hidden overparameterization.
+**Conclusion: this network's results are trustworthy.**
+
+**Still open, not yet checked:** whether other clinical-Olink-freq-wb-pb
+pairs carry fold-sensitive near-collinearity the way L3a's `total_chol`
+did — this was found and fixed for two specific rules (WBC, hierarchy) by
+deliberate design, and cross-checked for the `wb` cluster by chance while
+investigating BIC-cg, but no systematic cross-modality collinearity sweep
+has been done across the full 352-node space.
+
+---
+
 ## Summary table
 
 | Network | Nodes | Samples | Ratio | Tabu edges | avg_conservative | CV loss mean | CV loss sd | Status |
@@ -367,20 +470,42 @@ single full-data fit, not a hidden numerical problem.
 | L4 | 53 | 86 | 0.62 | 139 | 89 (t=0.575) | -131.7 | 3.6 | ✅ Verified |
 | L5 | 91 | 88 | 1.03 | 431 | 130 (t=0.875) | 61.2 | 15.9 | ✅ Verified |
 | L6 | 147 | 77 | 1.9 | 721 | 145 (t=0.875) | -83.5 | 15.4 | ✅ Verified |
+| L_all | 352 | 75 | 4.7 | 1523 | 270 (t=0.875) | 30.3 | 31.7 | ✅ Verified — 2 bugs found & fixed, see notes |
 
 *L3a's mean/sd are skewed by one specific outlier fold (98.8% of total
 loss); 99/100 folds are healthy and in a normal range. See L3a section for
 the full diagnosis and why it was deliberately left as-is.
 
-All eight networks now show healthy or well-understood CV loss, confirmed
+All nine networks now show healthy or well-understood CV loss, confirmed
 both numerically (console output) and — for the six with histograms
 available — visually (edge-strength and loss histograms showing the
 expected shape: signal/noise separation in edge strength, smooth
 single-cluster loss distributions with no outlier spike). `maxp` is
 confirmed present and re-verified via full rerun in every network; it
-changed results meaningfully for L3a, L5, and L6 (the three networks with
+changed results meaningfully for L3a, L5, L6, and L_all (the networks with
 ratio ≥ 0.85), and made no difference for the four smaller-ratio networks,
 exactly as predicted from the node-to-sample ratio reasoning.
+
+Full sd/mean ranking, tightest to loosest (L3a excluded — its ratio is
+skewed by one known/accepted outlier fold, not representative):
+```
+L4:    2.7%      L2:    19.8%
+L1b:   4.8%      L5:    26.0%
+L1a:   6.7%      L_all: 104.6%
+L3b:   8.0%
+L6:   18.4%
+```
+**L_all's ~105% ratio is the loosest of any verified network** (excluding
+L3a's skewed number) — this was previously described in an earlier draft
+of this section as "tight," which was a direct error: 1.05x looked
+favorable only in contrast to the broken *pre-fix* 5.12x, not in absolute
+terms against the rest of the project. The correct read: L_all's CV loss,
+while confirmed trustworthy (see the L_all section's variance-explained
+check), is genuinely less stable fold-to-fold than every other network
+except L3a — consistent with it having by far the most extreme
+node-to-sample ratio (~4.7:1) of anything attempted. This is worth keeping
+in mind as a real limitation, not a solved problem, if L_all's results are
+used for anything beyond the exploratory stage.
 
 ---
 
@@ -475,11 +600,14 @@ directly, or dedupe by unordered pair first for other comparisons.
   clinical-Olink pairs carry similar fold-sensitive near-collinearity that
   simply hasn't surfaced as badly yet has **not** been systematically
   checked, in either L3a or L3b.
-- **The all-modalities network (`L_all`)** is built (config +
-  `01_data_prep_all_cv.Rmd` + `02_structure_learning_all_cv.Rmd`) but not
-  yet run. Node-to-sample ratio (~340-374 nodes / ~75-79 samples, ~5:1) is
-  far beyond anything validated so far (L6's 1.9 was the previous highest,
-  and even L3a at 0.88 needed real diagnosis) — treat the first run as a
-  genuine experiment, not a confirmation. `MAXP` is set to 5 in the config
-  specifically because of this; the config's own comments suggest trying
-  `MAXP <- 3L` if the first attempt is still catastrophic.
+- **The all-modalities network (`L_all`) has been run and its results
+  verified** (two real bugs found and fixed — see the L_all section for
+  full detail). Its CV loss sd/mean ratio (~105%) remains the loosest of
+  any verified network, which is expected given its extreme node-to-sample
+  ratio, but is worth treating as a real, ongoing limitation rather than a
+  fully solved problem if this network is used for anything beyond
+  exploratory analysis. No systematic cross-modality collinearity sweep
+  has been done across its full 352-node space — the two collinearity-type
+  issues found so far (WBC, freq hierarchy) were caught by deliberate
+  design, not by an exhaustive check, and the `wb`-cluster pattern found
+  while investigating BIC-cg was found somewhat by chance.
