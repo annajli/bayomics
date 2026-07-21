@@ -1,0 +1,325 @@
+---
+title: "BN Structure Learning — All Variables (Cross-Validated)"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L_all.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/shaveen/Desktop/bn_cv")
+library(bnlearn)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+```
+
+# 1. Load config and prepared data
+
+Unlike every other network's structure-learning file, this one does NOT
+re-derive `bn_df` from `CONTINUOUS_MAP` (L_all's config doesn't define one --
+node selection is programmatic, built by `01_data_prep_all_cv.Rmd`). Instead
+it loads the already-prepared `bn_complete` that file exported. **Run
+`01_data_prep_all_cv.Rmd` first** -- this file will fail to find its input
+otherwise.
+
+```{r load-config}
+source(params$config)
+if (!exists("MAXP")) {
+  MAXP <- 10L
+  cat("Config did not define MAXP -- falling back to default of 10.\n")
+}
+cat(sprintf("Network: %s (seed=%d, maxp=%d)\n", NETWORK_ID, SEED, MAXP))
+
+data_path <- file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID))
+if (!file.exists(data_path)) {
+  stop(sprintf("Prepared data not found at %s -- run 01_data_prep_all_cv.Rmd first.", data_path))
+}
+bn_df <- readRDS(data_path)
+cat(sprintf("Loaded prepared data: %d samples x %d nodes\n", nrow(bn_df), ncol(bn_df)))
+
+mapping_path <- file.path("output", sprintf("%s_node_mapping.csv", NETWORK_ID))
+if (!file.exists(mapping_path)) {
+  stop(sprintf("Node mapping not found at %s -- run 01_data_prep_all_cv.Rmd first.", mapping_path))
+}
+node_mapping <- read_csv(mapping_path, show_col_types = FALSE)
+```
+
+# 2. Generate blacklist
+
+No edges into root nodes + roots mutually independent. CLG constraint:
+discrete nodes cannot have continuous parents.
+
+```{r blacklist}
+all_nodes <- names(bn_df)
+non_roots <- setdiff(all_nodes, ROOTS)
+
+# Rule 1: No edges INTO root nodes (from any node)
+bl_into_roots <- expand.grid(from = all_nodes, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+# Rule 2: Roots mutually independent (no edges between roots in either direction)
+bl_between_roots <- expand.grid(from = ROOTS, to = ROOTS, stringsAsFactors = FALSE) %>%
+  filter(from != to)
+
+# Rule 3: Block edges between WBC and its deterministic components.
+# IMPORTANT: this network's aliases are generated programmatically by
+# 01_data_prep_all_cv.Rmd (e.g. clinical.bc.wbc -> "bc_wbc"), NOT the short
+# hand-picked names ("wbc", "neutrophils", ...) used in L1a/L1b's manually-
+# written configs. Matching on hardcoded alias strings here would silently
+# find zero nodes and no-op -- the redundancy would still be present in the
+# data, just undetected. Instead, look up the cluster by its actual CSV
+# column identity via node_mapping.csv, which is correct regardless of
+# which alias each column ended up with.
+wbc_csv_targets <- c(
+  "clinical.bc.wbc",
+  "clinical.bc.neutrophil_count",
+  "clinical.bc.lymphocyte_count",
+  "clinical.bc.monocyte_count",
+  "clinical.bc.eosinophil_count",
+  "clinical.bc.basophil_count"
+)
+wbc_cluster <- node_mapping$alias[node_mapping$csv_column %in% wbc_csv_targets]
+wbc_cluster <- intersect(wbc_cluster, all_nodes)
+
+if (length(wbc_cluster) >= 2) {
+  bl_wbc <- expand.grid(from = wbc_cluster, to = wbc_cluster, stringsAsFactors = FALSE) %>%
+    filter(from != to)
+  cat(sprintf("WBC cluster present: %s (%d blacklist rows)\n",
+              paste(wbc_cluster, collapse = ", "), nrow(bl_wbc)))
+} else {
+  bl_wbc <- data.frame(from = character(0), to = character(0))
+  cat("WBC cluster: fewer than 2 relevant nodes present, no rule applied\n")
+}
+
+# Rule 4: Block direct parent-child edges in hierarchical modalities (freq's
+# L1/L2/L3 cell-type gating tree). Freq's programmatic aliases already match
+# PARENT_MAP's key format directly (both use lowercase l1_/l2_/l3_ prefixes),
+# so this can use PARENT_MAP as-is, unlike the WBC rule above.
+if (exists("PARENT_MAP")) {
+  child_nodes <- intersect(names(PARENT_MAP), all_nodes)
+  bl_hierarchy_rows <- lapply(child_nodes, function(child) {
+    parent <- PARENT_MAP[[child]]
+    if (parent %in% all_nodes) {
+      data.frame(from = c(child, parent), to = c(parent, child), stringsAsFactors = FALSE)
+    } else {
+      NULL
+    }
+  })
+  bl_hierarchy <- bind_rows(bl_hierarchy_rows)
+  cat(sprintf("Hierarchy blacklist (PARENT_MAP): %d parent-child pairs, %d blacklist rows\n",
+              nrow(bl_hierarchy) / 2, nrow(bl_hierarchy)))
+} else {
+  bl_hierarchy <- data.frame(from = character(0), to = character(0))
+}
+
+blacklist <- rbind(bl_into_roots, bl_between_roots, bl_wbc, bl_hierarchy) %>% distinct()
+cat(sprintf("Blacklist: %d edges forbidden\n", nrow(blacklist)))
+```
+
+# 3. Score-based structure learning
+
+## 3a. Hill-climbing
+
+```{r hc}
+set.seed(SEED)
+bn_hc <- hc(bn_df, score = "bic-cg", blacklist = blacklist, maxp = MAXP)
+cat(sprintf("HC: %d edges, BIC-cg = %.2f\n", narcs(bn_hc), score(bn_hc, bn_df, type = "bic-cg")))
+```
+
+## 3b. Tabu search
+
+```{r tabu}
+set.seed(SEED)
+bn_tabu <- tabu(bn_df, score = "bic-cg", blacklist = blacklist, maxp = MAXP)
+cat(sprintf("Tabu: %d edges, BIC-cg = %.2f\n", narcs(bn_tabu), score(bn_tabu, bn_df, type = "bic-cg")))
+```
+
+## 3c. MMHC (hybrid)
+
+```{r mmhc}
+set.seed(SEED)
+bn_mmhc <- mmhc(bn_df, blacklist = blacklist, maximize.args = list(maxp = MAXP))
+cat(sprintf("MMHC: %d edges, BIC-cg = %.2f\n", narcs(bn_mmhc), score(bn_mmhc, bn_df, type = "bic-cg")))
+```
+
+# 4. Algorithm comparison
+
+```{r algo-comparison}
+arcs_hc <- apply(arcs(bn_hc), 1, paste, collapse = "->")
+arcs_tabu <- apply(arcs(bn_tabu), 1, paste, collapse = "->")
+arcs_mmhc <- apply(arcs(bn_mmhc), 1, paste, collapse = "->")
+
+cat(sprintf("HC-Tabu overlap: %d / %d\n", length(intersect(arcs_hc, arcs_tabu)), length(union(arcs_hc, arcs_tabu))))
+cat(sprintf("Tabu-MMHC overlap: %d / %d\n", length(intersect(arcs_tabu, arcs_mmhc)), length(union(arcs_tabu, arcs_mmhc))))
+cat(sprintf("All three agree on: %d edges\n", length(Reduce(intersect, list(arcs_hc, arcs_tabu, arcs_mmhc)))))
+```
+
+# 5. Cross-validation
+
+`bn.cv()` learns a fresh tabu structure on each training fold and scores it
+against the held-out fold.
+
+```{r cross-validation}
+K_FOLDS <- 10
+N_RUNS  <- 10
+
+cv_result <- bn.cv(
+  bn_df,
+  bn = "tabu",
+  algorithm.args = list(score = "bic-cg", blacklist = blacklist, maxp = MAXP),
+  loss = "logl",
+  method = "k-fold",
+  k = K_FOLDS,
+  runs = N_RUNS
+)
+
+fold_losses <- unlist(lapply(cv_result, function(run) sapply(run, function(fold) fold$loss)))
+cat(sprintf("Held-out loss (logl): mean = %.3f, sd = %.3f\n", mean(fold_losses), sd(fold_losses)))
+
+cv_fits <- unlist(lapply(cv_result, function(run) lapply(run, function(fold) fold$fitted)), recursive = FALSE)
+cv_nets <- lapply(cv_fits, bn.net)
+```
+
+## 5a. Edge stability across CV folds
+
+```{r cv-strength}
+cv_str <- custom.strength(cv_nets, nodes = names(bn_df))
+```
+
+## 5b. Averaged networks at multiple thresholds
+
+```{r averaged-networks}
+# Optimal threshold (bnlearn heuristic)
+avg_opt <- averaged.network(cv_str)
+thresh_opt <- attr(avg_opt, "threshold")
+if (is.null(thresh_opt) || is.na(thresh_opt)) {
+  cat("Optimal threshold heuristic returned NA/NULL -- falling back to 0.5\n")
+  thresh_opt <- 0.5
+  avg_opt <- averaged.network(cv_str, threshold = thresh_opt)
+}
+cat(sprintf("Optimal threshold: %.4f\n", thresh_opt))
+cat(sprintf("Averaged network (optimal, t=%.4f): %d edges\n", thresh_opt, narcs(avg_opt)))
+
+# Conservative threshold -- CV-appropriate empirical valley, not bootstrap's fixed 0.85
+strengths_mid <- cv_str$strength[cv_str$strength > 0.3 & cv_str$strength < 0.95]
+if (length(strengths_mid) >= 5) {
+  bin_width <- 0.05
+  breaks <- seq(0.3, 0.95, by = bin_width)
+  h <- hist(strengths_mid, breaks = breaks, plot = FALSE)
+  min_bin <- which.min(h$counts)
+  thresh_conservative <- h$mids[min_bin]
+  cat(sprintf("Bin counts (0.3-0.95, width %.2f): %s\n",
+              bin_width, paste(h$counts, collapse = ", ")))
+} else {
+  cat("Too few mid-range edge strengths to estimate a valley -- falling back to 0.85\n")
+  thresh_conservative <- 0.85
+}
+cat(sprintf("CV-appropriate conservative threshold (empirical valley): %.3f\n", thresh_conservative))
+
+avg_conservative <- averaged.network(cv_str, threshold = thresh_conservative)
+cat(sprintf("Averaged network (conservative, t=%.4f): %d edges\n", thresh_conservative, narcs(avg_conservative)))
+
+# Liberal threshold (0.50)
+avg_50 <- averaged.network(cv_str, threshold = 0.50)
+cat(sprintf("Averaged network (t=0.50): %d edges\n", narcs(avg_50)))
+```
+
+# 6. Edge strength table
+
+```{r edge-table}
+# Filter to edges with strength > 0.1 for readability
+sig_edges <- cv_str %>% filter(strength > 0.1) %>% arrange(desc(strength))
+knitr::kable(head(sig_edges, 50), digits = 3)
+
+# Full export -- every directed pair, unfiltered (see README for column
+# meanings: strength/direction match the histogram/table above,
+# in_final_dag marks membership in avg_conservative specifically)
+edges_export <- cv_str %>%
+  mutate(in_final_dag = mapply(function(f, t) {
+    arcs_conservative <- arcs(avg_conservative)
+    any(arcs_conservative[, "from"] == f & arcs_conservative[, "to"] == t)
+  }, from, to))
+write_csv(edges_export, file.path("output", sprintf("%s_literature_edges_cv.csv", NETWORK_ID)))
+cat(sprintf("Saved edge export: output/%s_literature_edges_cv.csv (%d rows)\n",
+            NETWORK_ID, nrow(edges_export)))
+```
+
+# 7. Diagnostic plots
+
+```{r edge-strength-histogram}
+fig_dir <- "output/figures"
+if (!dir.exists(fig_dir)) dir.create(fig_dir, recursive = TRUE)
+
+p_strength <- ggplot(cv_str, aes(x = strength)) +
+  geom_histogram(bins = 30, fill = "steelblue") +
+  geom_vline(xintercept = 0.5, color = "darkgreen") +
+  geom_vline(xintercept = 0.85, color = "red", linetype = "dashed") +
+  annotate("text", x = 0.5, y = Inf, label = sprintf("0.50\nopt=%.2f", thresh_opt),
+           vjust = 1.5, color = "darkgreen", size = 3) +
+  annotate("text", x = 0.85, y = Inf, label = "0.85", vjust = 1.5, color = "red", size = 3) +
+  labs(title = sprintf("%s — CV Edge Strength Distribution", NETWORK_ID),
+       x = "Edge Strength", y = "Count") +
+  theme_minimal()
+ggsave(file.path(fig_dir, sprintf("%s_edge_strength_hist_cv.png", NETWORK_ID)),
+       p_strength, width = 8, height = 5, dpi = 150)
+
+# Held-out loss distribution
+loss_df <- data.frame(loss = fold_losses)
+p_loss <- ggplot(loss_df, aes(x = loss)) +
+  geom_histogram(bins = 30, fill = "orange") +
+  labs(title = sprintf("%s — CV Held-Out Loss Distribution (logl)", NETWORK_ID),
+       x = "Held-out loss (lower = better fit)", y = "Count") +
+  theme_minimal()
+ggsave(file.path(fig_dir, sprintf("%s_loss_hist_cv.png", NETWORK_ID)),
+       p_loss, width = 8, height = 5, dpi = 150)
+
+cat("Saved diagnostic plots to output/figures/\n")
+```
+
+```{r dag-visualizations}
+net_dir <- "Networks"
+if (!dir.exists(net_dir)) dir.create(net_dir, recursive = TRUE)
+
+png(file.path(net_dir, sprintf("%s_tabu_cv.png", NETWORK_ID)), width = 1200, height = 1200)
+plot(bn_tabu, main = sprintf("%s — Tabu", NETWORK_ID))
+dev.off()
+
+png(file.path(net_dir, sprintf("%s_avg_cv.png", NETWORK_ID)), width = 1200, height = 1200)
+plot(avg_opt, main = sprintf("%s — CV Averaged (t=%.3f)", NETWORK_ID, thresh_opt))
+dev.off()
+
+cat("Saved DAG visualizations to Networks/\n")
+```
+
+# 8. Fit parameters and save
+
+```{r fit-and-save}
+# Fit parameters on the tabu DAG (learned on the FULL data, not a CV fold)
+fit_tabu <- bn.fit(bn_tabu, bn_df)
+
+models <- list(
+  bn_hc            = bn_hc,
+  bn_tabu          = bn_tabu,
+  bn_mmhc          = bn_mmhc,
+  fit_tabu         = fit_tabu,
+  cv_str           = cv_str,
+  cv_losses        = fold_losses,
+  avg_opt          = avg_opt,
+  avg_conservative = avg_conservative,
+  avg_50           = avg_50,
+  blacklist        = blacklist,
+  maxp_used        = MAXP,
+  config           = list(
+    network_id = NETWORK_ID,
+    seed       = SEED
+  )
+)
+
+out_path <- file.path("output", "models", sprintf("%s_models.rds", NETWORK_ID))
+saveRDS(models, out_path)
+cat(sprintf("Saved: %s\n", out_path))
+```
