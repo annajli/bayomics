@@ -1,0 +1,518 @@
+---
+title: "BN Data Preparation — All Variables (Cross-Validated)"
+author: "BPGbio Capstone"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  config: "config/L_all.R"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, message = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/shaveen/Desktop/bn_cv")
+library(readr)
+library(dplyr)
+library(tidyr)
+library(bnlearn)
+```
+
+# 1. Load config
+
+```{r load-config}
+source(params$config)
+cat(sprintf("Network: %s (seed=%d, maxp=%d)\n", NETWORK_ID, SEED, MAXP))
+cat(sprintf("Roots: %s\n", paste(ROOTS, collapse = ", ")))
+cat(sprintf("Feature prefixes: %s\n", paste(FEATURE_PREFIXES, collapse = ", ")))
+cat(sprintf("Missingness threshold: %.0f%%\n", 100 * MISSINGNESS_THRESHOLD))
+cat(sprintf("Exclude candidates: %d columns\n", length(EXCLUDE_CANDIDATES)))
+cat(sprintf("Deterministic exclude: %d columns\n", length(DETERMINISTIC_EXCLUDE)))
+cat(sprintf("Log-transform (csv names): %s\n", paste(LOG_TRANSFORM_CSV, collapse = ", ")))
+```
+
+# 2. Load baseline data
+
+```{r load-data}
+bn_raw <- read_csv(
+  file.path("..", "data", "processed", "bn_ready_baseline.csv"),
+  show_col_types = FALSE
+)
+stopifnot(nrow(bn_raw) == 92)
+cat(sprintf("Loaded bn_ready_baseline.csv: %d x %d\n", nrow(bn_raw), ncol(bn_raw)))
+```
+
+# 3. Backfill CMV from raw metadata
+
+CMV IgG serology was measured at non-baseline visits for most subjects.
+CMV serostatus is a stable trait — backfill from whichever visit has the measurement.
+4 subjects (BR1049, BR1056, BR1058, BR1059) have no CMV at any visit — they remain
+NA and will be dropped at the complete-case step (CMV is a required root node).
+
+```{r backfill-cmv}
+meta_raw <- read_csv(
+  file.path("..", "data", "raw", "sound_life_labs_metadata.csv"),
+  show_col_types = FALSE
+)
+
+cmv_lookup <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  distinct(subject.subjectGuid, .keep_all = TRUE) %>%
+  select(subject.subjectGuid, cmv_backfill = cmv.igg_serology_interpretation)
+
+# Report coverage (88/92 have CMV; 4 subjects have no CMV at any visit)
+n_with_cmv <- sum(bn_raw$subject.subjectGuid %in% cmv_lookup$subject.subjectGuid)
+n_without <- nrow(bn_raw) - n_with_cmv
+cat(sprintf("CMV available for %d / %d subjects (%d without CMV at any visit)\n",
+            n_with_cmv, nrow(bn_raw), n_without))
+if (n_without > 0) {
+  missing_guids <- setdiff(bn_raw$subject.subjectGuid, cmv_lookup$subject.subjectGuid)
+  cat(sprintf("  Subjects without CMV: %s\n", paste(missing_guids, collapse = ", ")))
+}
+
+# Verify no conflicts among subjects that DO have CMV
+n_status <- meta_raw %>%
+  filter(!is.na(cmv.igg_serology_interpretation)) %>%
+  group_by(subject.subjectGuid) %>%
+  summarise(n_unique = n_distinct(cmv.igg_serology_interpretation), .groups = "drop")
+stopifnot(all(n_status$n_unique == 1))
+
+# Merge and overwrite (left join — subjects without CMV stay NA)
+bn_raw <- bn_raw %>%
+  left_join(cmv_lookup, by = "subject.subjectGuid") %>%
+  mutate(cmv.igg_serology_interpretation = cmv_backfill) %>%
+  select(-cmv_backfill)
+
+cat(sprintf("CMV after backfill: %d non-NA / %d\n",
+            sum(!is.na(bn_raw$cmv.igg_serology_interpretation)), nrow(bn_raw)))
+cat("CMV distribution:\n")
+print(table(bn_raw$cmv.igg_serology_interpretation, useNA = "ifany"))
+```
+
+# 4. Programmatic column discovery
+
+Select all columns whose names start with any FEATURE_PREFIXES, then apply
+exclusion filters. Flag columns (internal QC indicators, not biology) are
+excluded via pattern matching before the explicit exclusion lists are applied.
+
+```{r column-discovery}
+all_cols <- names(bn_raw)
+
+# Select columns matching any feature prefix
+prefix_pattern <- paste0("^(", paste(gsub("\\.", "\\\\.", FEATURE_PREFIXES), collapse = "|"), ")")
+candidate_cols <- all_cols[grepl(prefix_pattern, all_cols)]
+cat(sprintf("Columns matching FEATURE_PREFIXES: %d\n", length(candidate_cols)))
+
+# Exclude flag columns (QC indicators, not biology)
+flag_cols <- candidate_cols[grepl("_flag_|_flag$", candidate_cols)]
+if (length(flag_cols) > 0) {
+  cat(sprintf("Excluding flag columns (%d): %s\n",
+              length(flag_cols), paste(flag_cols, collapse = ", ")))
+}
+candidate_cols <- setdiff(candidate_cols, flag_cols)
+
+# Exclude EXCLUDE_CANDIDATES
+excluded_candidates <- intersect(candidate_cols, EXCLUDE_CANDIDATES)
+if (length(excluded_candidates) > 0) {
+  cat(sprintf("Excluding EXCLUDE_CANDIDATES (%d): %s\n",
+              length(excluded_candidates), paste(excluded_candidates, collapse = ", ")))
+}
+candidate_cols <- setdiff(candidate_cols, EXCLUDE_CANDIDATES)
+
+# Exclude DETERMINISTIC_EXCLUDE
+excluded_deterministic <- intersect(candidate_cols, DETERMINISTIC_EXCLUDE)
+if (length(excluded_deterministic) > 0) {
+  cat(sprintf("Excluding DETERMINISTIC_EXCLUDE (%d): %s\n",
+              length(excluded_deterministic), paste(excluded_deterministic, collapse = ", ")))
+}
+candidate_cols <- setdiff(candidate_cols, DETERMINISTIC_EXCLUDE)
+
+cat(sprintf("\nCandidate feature columns after exclusions: %d\n", length(candidate_cols)))
+
+# Also include root columns (needed for the final data frame)
+root_csv_cols <- unname(ROOT_MAP)
+missing_roots <- setdiff(root_csv_cols, all_cols)
+if (length(missing_roots) > 0) {
+  stop(sprintf("Root columns not found in data: %s", paste(missing_roots, collapse = ", ")))
+}
+cat(sprintf("Root columns: %s\n", paste(root_csv_cols, collapse = ", ")))
+```
+
+# 5. Build aliases
+
+Generate short, bnlearn-safe node names from csv column names:
+
+- `clinical.chem.alt`   -> `chem_alt`   (strip `clinical.`, replace dots with underscores)
+- `olink.IL6`           -> `IL6`         (strip `olink.`)
+- `freq.L1_b_cell`      -> `l1_b_cell`   (strip `freq.`, lowercase)
+- `freq.L3_foo.1`       -> `l3_foo_alt`  (strip `freq.`, lowercase, `.1` suffix -> `_alt`)
+- `pb.foo_bar`          -> `pb_foo_bar`  (replace `pb.` with `pb_`)
+- `wb.foo`              -> `wb_foo`      (replace `wb.` with `wb_`)
+
+```{r build-aliases}
+make_alias <- function(csv_col) {
+  if (grepl("^clinical\\.", csv_col)) {
+    # Strip "clinical." prefix, replace remaining dots with underscores
+    alias <- sub("^clinical\\.", "", csv_col)
+    alias <- gsub("\\.", "_", alias)
+  } else if (grepl("^olink\\.", csv_col)) {
+    # Strip "olink." prefix — olink columns are gene symbols (uppercase), keep as-is
+    alias <- sub("^olink\\.", "", csv_col)
+  } else if (grepl("^freq\\.", csv_col)) {
+    # Strip "freq." prefix, lowercase, convert ".1" / ".2" / ".3" suffixes to "_alt" etc.
+    alias <- sub("^freq\\.", "", csv_col)
+    alias <- tolower(alias)
+    # Handle .1 suffix (first duplicate variant) -> _alt
+    alias <- sub("\\.1$", "_alt", alias)
+    # Remaining dots to underscores
+    alias <- gsub("\\.", "_", alias)
+  } else if (grepl("^pb\\.", csv_col)) {
+    # Replace "pb." with "pb_"
+    alias <- sub("^pb\\.", "pb_", csv_col)
+    alias <- gsub("\\.", "_", alias)
+  } else if (grepl("^wb\\.", csv_col)) {
+    # Replace "wb." with "wb_"
+    alias <- sub("^wb\\.", "wb_", csv_col)
+    alias <- gsub("\\.", "_", alias)
+  } else {
+    # Fallback: replace all dots with underscores
+    alias <- gsub("\\.", "_", csv_col)
+  }
+  alias
+}
+
+# Build root aliases from ROOT_MAP
+root_aliases <- setNames(names(ROOT_MAP), unname(ROOT_MAP))  # csv_col -> alias
+
+# Build continuous node aliases
+cont_aliases_raw <- sapply(candidate_cols, make_alias)
+
+# Check for alias collisions among continuous columns
+dup_aliases <- cont_aliases_raw[duplicated(cont_aliases_raw)]
+if (length(dup_aliases) > 0) {
+  collision_detail <- lapply(unique(dup_aliases), function(a) {
+    cols <- candidate_cols[cont_aliases_raw == a]
+    paste(cols, collapse = " / ")
+  })
+  stop(sprintf("Alias collisions detected — resolve in config exclusions:\n%s",
+               paste(names(collision_detail), "->", unlist(collision_detail), collapse = "\n")))
+}
+
+# Check for collisions between continuous aliases and root aliases
+root_alias_vals <- unname(root_aliases)
+cont_root_collision <- intersect(cont_aliases_raw, root_alias_vals)
+if (length(cont_root_collision) > 0) {
+  stop(sprintf("Continuous alias(es) clash with root alias(es): %s",
+               paste(cont_root_collision, collapse = ", ")))
+}
+
+# CONTINUOUS_MAP: named vector alias = csv_col (continuous only, no roots)
+CONTINUOUS_MAP <- setNames(candidate_cols, cont_aliases_raw)
+
+# NODE_MAP: all nodes (roots + continuous), alias = csv_col
+NODE_MAP <- c(
+  setNames(root_csv_cols, names(ROOT_MAP)),
+  CONTINUOUS_MAP
+)
+
+cat(sprintf("Continuous nodes discovered: %d\n", length(CONTINUOUS_MAP)))
+cat(sprintf("Total nodes (incl. roots): %d\n", length(NODE_MAP)))
+
+# Select and rename
+bn_df <- bn_raw %>%
+  select(all_of(unname(NODE_MAP))) %>%
+  rename(!!!setNames(unname(NODE_MAP), names(NODE_MAP)))
+
+# Coerce continuous nodes to numeric (double) — bnlearn CLG rejects integer columns
+continuous_nodes <- setdiff(names(bn_df), ROOTS)
+bn_df <- bn_df %>%
+  mutate(across(all_of(continuous_nodes), as.numeric))
+
+cat(sprintf("\nSelected %d columns (aliases).\n", ncol(bn_df)))
+cat(sprintf("Continuous node sample: %s\n",
+            paste(head(names(CONTINUOUS_MAP), 10), collapse = ", ")))
+```
+
+# 6. Apply log1p transforms
+
+LOG_TRANSFORM_CSV uses csv column names; map them to aliases before applying.
+
+```{r log-transform}
+# Map csv column names to aliases
+log_transform_aliases <- names(CONTINUOUS_MAP)[unname(CONTINUOUS_MAP) %in% LOG_TRANSFORM_CSV]
+
+# Warn about any LOG_TRANSFORM_CSV entries that weren't found (excluded or missing)
+missing_log <- setdiff(LOG_TRANSFORM_CSV, unname(CONTINUOUS_MAP))
+if (length(missing_log) > 0) {
+  warning(sprintf("LOG_TRANSFORM_CSV entries not in selected columns (excluded or missing): %s",
+                  paste(missing_log, collapse = ", ")))
+}
+
+if (length(log_transform_aliases) > 0) {
+  cat(sprintf("Applying log1p to %d variables:\n", length(log_transform_aliases)))
+  for (var in log_transform_aliases) {
+    stopifnot(var %in% names(bn_df))
+    bn_df[[var]] <- log1p(bn_df[[var]])
+    cat(sprintf("  log1p(%s): range [%.2f, %.2f]\n",
+                var, min(bn_df[[var]], na.rm = TRUE), max(bn_df[[var]], na.rm = TRUE)))
+  }
+} else {
+  cat("No log1p transforms applied.\n")
+}
+```
+
+# 7. ALR transform for freq columns
+
+Only applies when the current config defines `PARENT_MAP` (freq columns are
+compositionally constrained — ALR removes the redundant degree of freedom
+per sibling group). Reference selection: highest-mean-abundance sibling per
+group. See 01_data_prep_L5_cv.Rmd for full rationale.
+
+NOTE: PARENT_MAP keys are aliases (post-freq-prefix-stripping). The ALR
+transform operates on bn_df column names (already aliased).
+
+```{r sibling-log-ratio}
+if (exists("PARENT_MAP")) {
+  cat("Applying additive log-ratio (ALR) transform for compositional hierarchy...\n\n")
+
+  # Restrict PARENT_MAP to nodes actually present in bn_df (some freq cols
+  # may have been excluded or renamed; this avoids keying on absent columns)
+  pm_keys_present   <- names(PARENT_MAP)[names(PARENT_MAP) %in% names(bn_df)]
+  pm_values_present <- PARENT_MAP[pm_keys_present]
+
+  # Group children by their immediate parent (covers L2-under-L1, L3-under-L2)
+  child_groups <- split(pm_keys_present, unlist(pm_values_present))
+
+  # Implicit top-level group: nodes that are a PARENT_MAP value (someone's
+  # parent) but never a key (never themselves have a parent) — for freq,
+  # this correctly isolates the L1 nodes.
+  top_level_nodes <- setdiff(unique(unlist(pm_values_present)), pm_keys_present)
+  top_level_nodes <- intersect(top_level_nodes, names(bn_df))
+  if (length(top_level_nodes) >= 2) {
+    child_groups[["__top_level__"]] <- top_level_nodes
+    cat(sprintf("Top-level group identified: %d nodes (%s)\n\n",
+                length(top_level_nodes), paste(top_level_nodes, collapse = ", ")))
+  }
+
+  n_refs_dropped <- 0
+  n_siblings_transformed <- 0
+  # Tracks new_alr_name -> reference_used, so Section 12's export can report it accurately
+  alr_reference_map <- c()
+
+  for (grp in names(child_groups)) {
+    children <- intersect(child_groups[[grp]], names(bn_df))
+    if (length(children) < 2) next
+
+    means <- sapply(children, function(c) mean(bn_df[[c]], na.rm = TRUE))
+    ref <- names(which.max(means))
+    others <- setdiff(children, ref)
+
+    for (child in others) {
+      new_name <- paste0(child, "_alr")
+      bn_df[[new_name]] <- bn_df[[child]] - bn_df[[ref]]
+      bn_df[[child]] <- NULL
+      alr_reference_map[new_name] <- ref
+    }
+    bn_df[[ref]] <- NULL
+
+    n_refs_dropped <- n_refs_dropped + 1
+    n_siblings_transformed <- n_siblings_transformed + length(others)
+
+    cat(sprintf("  Group '%s': reference = %s (dropped), %d siblings -> ALR nodes\n",
+                grp, ref, length(others)))
+  }
+
+  cat(sprintf("\nALR transform complete: %d reference nodes dropped, %d sibling nodes converted to log-ratios\n",
+              n_refs_dropped, n_siblings_transformed))
+  cat(sprintf("Node count after ALR: %d\n", ncol(bn_df)))
+} else {
+  cat("No PARENT_MAP defined for this config — skipping sibling log-ratio transform.\n")
+  alr_reference_map <- c()  # defined empty so Section 12's lookup never fails
+}
+```
+
+# 8. Missingness filter
+
+Drop columns exceeding MISSINGNESS_THRESHOLD before complete-case analysis.
+With this many columns, even moderate per-column missingness compounds to
+unacceptable complete-case sample loss.
+
+```{r missingness-filter}
+n_rows <- nrow(bn_df)
+per_col_miss <- colSums(is.na(bn_df)) / n_rows
+
+high_miss_cols <- names(per_col_miss[per_col_miss > MISSINGNESS_THRESHOLD & names(per_col_miss) %in% continuous_nodes])
+
+if (length(high_miss_cols) > 0) {
+  cat(sprintf("Dropping %d columns exceeding %.0f%% missingness threshold:\n",
+              length(high_miss_cols), 100 * MISSINGNESS_THRESHOLD))
+  for (col in high_miss_cols) {
+    cat(sprintf("  %s: %.1f%% missing\n", col, 100 * per_col_miss[col]))
+  }
+  bn_df <- bn_df %>% select(-all_of(high_miss_cols))
+  cat(sprintf("Node count after missingness filter: %d\n", ncol(bn_df)))
+} else {
+  cat(sprintf("No columns exceed the %.0f%% missingness threshold.\n",
+              100 * MISSINGNESS_THRESHOLD))
+}
+```
+
+# 9. Set factor levels for discrete roots
+
+```{r factor-roots}
+for (root in ROOTS) {
+  ref <- REFERENCE_LEVELS[[root]]
+  lvls <- sort(unique(bn_df[[root]]))
+  # Put reference level first
+  lvls <- c(ref, setdiff(lvls, ref))
+  bn_df[[root]] <- factor(bn_df[[root]], levels = lvls)
+  cat(sprintf("  %s: levels = %s (ref = %s)\n",
+              root, paste(levels(bn_df[[root]]), collapse = ", "), ref))
+}
+```
+
+# 10. Complete-case analysis
+
+```{r complete-case}
+n_before <- nrow(bn_df)
+per_col_missing <- colSums(is.na(bn_df))
+if (any(per_col_missing > 0)) {
+  cat("Per-column missingness (non-zero only):\n")
+  for (nm in names(per_col_missing[per_col_missing > 0])) {
+    cat(sprintf("  %s: %d / %d (%.1f%%)\n",
+                nm, per_col_missing[nm], n_before, 100 * per_col_missing[nm] / n_before))
+  }
+}
+
+# Coerce to a plain data.frame: read_csv/dplyr produce a tibble, but bnlearn's
+# C backend does not support tibbles (bn.fit throws "REAL() can only be applied
+# to a 'numeric', not a 'integer'" on conditional-Gaussian nodes).
+bn_complete <- as.data.frame(bn_df[complete.cases(bn_df), ])
+n_after <- nrow(bn_complete)
+cat(sprintf("\nComplete cases: %d / %d (dropped %d)\n", n_after, n_before, n_before - n_after))
+
+# Warn if losing more than 15% of samples
+if ((n_before - n_after) / n_before > 0.15) {
+  warning(sprintf("Dropping %.1f%% of samples — consider imputation or excluding high-missingness columns",
+                  100 * (n_before - n_after) / n_before))
+}
+
+# Node-to-sample ratio check (experimental — expect high ratio for L_all)
+n_continuous_final <- ncol(bn_complete) - length(ROOTS)
+ratio <- ncol(bn_complete) / n_after
+cat(sprintf("Node-to-sample ratio: %d nodes / %d samples = %.1f:1\n",
+            ncol(bn_complete), n_after, ratio))
+if (ratio > 5) {
+  warning(sprintf("High node-to-sample ratio (%.1f:1). Network may be unstable. MAXP=%d constrains complexity.",
+                  ratio, MAXP))
+}
+```
+
+# 11. Modality breakdown
+
+Report which modalities contribute how many nodes to the final data.
+
+```{r modality-breakdown}
+final_cont_nodes <- setdiff(names(bn_complete), ROOTS)
+
+freq_nodes     <- final_cont_nodes[grepl("^l[123]_", final_cont_nodes)]
+olink_nodes    <- final_cont_nodes[grepl("^[A-Z]", final_cont_nodes)]
+clinical_nodes <- final_cont_nodes[grepl("^(chem_|bc_|lip_|infl_|am_)", final_cont_nodes)]
+pb_nodes       <- final_cont_nodes[grepl("^pb_", final_cont_nodes)]
+wb_nodes       <- final_cont_nodes[grepl("^wb_", final_cont_nodes)]
+
+other_nodes <- setdiff(final_cont_nodes,
+                       c(freq_nodes, olink_nodes, clinical_nodes, pb_nodes, wb_nodes))
+
+cat("Modality breakdown (continuous nodes):\n")
+cat(sprintf("  freq (incl. ALR): %d\n", length(freq_nodes)))
+cat(sprintf("  olink:            %d\n", length(olink_nodes)))
+cat(sprintf("  clinical:         %d\n", length(clinical_nodes)))
+cat(sprintf("  pseudobulk (pb):  %d\n", length(pb_nodes)))
+cat(sprintf("  whole blood (wb): %d\n", length(wb_nodes)))
+if (length(other_nodes) > 0) {
+  cat(sprintf("  other/unclassified: %d (%s)\n",
+              length(other_nodes), paste(other_nodes, collapse = ", ")))
+}
+cat(sprintf("  TOTAL continuous: %d\n", length(final_cont_nodes)))
+cat(sprintf("  roots:            %d\n", length(ROOTS)))
+cat(sprintf("  GRAND TOTAL:      %d\n", ncol(bn_complete)))
+```
+
+# 12. Export
+
+```{r export}
+cat(sprintf("Final data: %d samples x %d nodes (%d roots + %d continuous)\n",
+            nrow(bn_complete), ncol(bn_complete),
+            length(ROOTS), ncol(bn_complete) - length(ROOTS)))
+cat("Root balance:\n")
+for (root in ROOTS) {
+  cat(sprintf("  %s:\n", root))
+  print(table(bn_complete[[root]]))
+}
+
+# Save analysis-ready data
+out_path <- file.path("output", "models", sprintf("%s_data.rds", NETWORK_ID))
+saveRDS(bn_complete, out_path)
+cat(sprintf("\nSaved: %s\n", out_path))
+
+# Build node mapping for traceability.
+# NODE_MAP was built programmatically from CONTINUOUS_MAP + ROOT_MAP.
+# After ALR and missingness filtering, some original aliases are absent from
+# bn_complete (dropped as ALR references or filtered by missingness); new
+# _alr columns were added. Reconcile against final columns.
+final_cols <- names(bn_complete)
+
+mapping_rows <- lapply(final_cols, function(col) {
+  if (col %in% names(NODE_MAP)) {
+    # Untouched node — present in NODE_MAP under its original alias
+    data.frame(
+      alias          = col,
+      csv_column     = NODE_MAP[[col]],
+      modality       = sub("\\..*", "", NODE_MAP[[col]]),
+      type           = ifelse(col %in% ROOTS, "discrete_root", "continuous"),
+      log_transformed = col %in% log_transform_aliases,
+      alr_transformed = FALSE,
+      alr_reference   = NA_character_,
+      stringsAsFactors = FALSE
+    )
+  } else if (grepl("_alr$", col)) {
+    # ALR-derived node — original alias is the column name minus "_alr"
+    orig <- sub("_alr$", "", col)
+    data.frame(
+      alias          = col,
+      csv_column     = if (orig %in% names(NODE_MAP)) NODE_MAP[[orig]] else NA_character_,
+      modality       = "freq",
+      type           = "continuous",
+      log_transformed = orig %in% log_transform_aliases,
+      alr_transformed = TRUE,
+      alr_reference   = if (col %in% names(alr_reference_map)) alr_reference_map[[col]] else NA_character_,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    # Shouldn't happen, but don't silently drop an unrecognized column
+    data.frame(
+      alias = col, csv_column = NA_character_, modality = "unknown", type = "unknown",
+      log_transformed = NA, alr_transformed = NA, alr_reference = NA_character_,
+      stringsAsFactors = FALSE
+    )
+  }
+})
+mapping_df <- do.call(rbind, mapping_rows)
+
+# Record dropped ALR reference nodes for auditability
+dropped_as_reference <- setdiff(names(CONTINUOUS_MAP), final_cols)
+dropped_as_reference <- dropped_as_reference[sapply(dropped_as_reference, function(n) {
+  exists("PARENT_MAP") &&
+    (n %in% pm_keys_present || n %in% unique(unlist(if (exists("pm_values_present")) pm_values_present else list())))
+})]
+if (length(dropped_as_reference) > 0) {
+  cat(sprintf("\nDropped as ALR reference (expected, not missing data): %d nodes\n",
+              length(dropped_as_reference)))
+  cat(paste(" ", dropped_as_reference, collapse = "\n"), "\n")
+}
+
+mapping_out <- file.path("output", sprintf("%s_node_mapping.csv", NETWORK_ID))
+write_csv(mapping_df, mapping_out)
+cat(sprintf("Saved node mapping: %s\n", mapping_out))
+cat(sprintf("  Rows: %d (nodes in final network)\n", nrow(mapping_df)))
+cat(sprintf("  ALR-transformed nodes: %d\n", sum(mapping_df$alr_transformed, na.rm = TRUE)))
+```
