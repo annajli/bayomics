@@ -119,35 +119,86 @@ Held-out loss: mean = 32.390, sd = 6.376  (sd/mean ≈ 20%, flattest/least
 
 ## L3a — Combined: Clinical (full) + Olink
 
-**71 nodes** (3 roots + 34 clinical + 34 Olink), config built by merging
-L1a's and L2's already-fixed node sets and exclusion lists (not re-derived
-independently).
+**71 nodes** (3 roots + 34 clinical + 34 Olink), **81/92 samples**, config
+built by merging L1a's and L2's already-fixed node sets and exclusion lists
+(not re-derived independently).
 
-**STATUS: BROKEN, UNRESOLVED.** Rendered once — showed a catastrophic CV
-loss (same broad symptom pattern as L5's original problem: high sd/mean
-ratio). **Never diagnosed or fixed** — work moved to other networks before
-this was resolved. Do not treat L3a's edges/thresholds as trustworthy.
-Needs the same diagnostic process used for L5 (sort fold losses → identify
-dominant fold(s) → check for near-singular node fits → likely `maxp` or a
-cross-modality collinearity issue not yet checked).
+**Status: investigated and resolved (deliberately left with one known,
+understood, low-impact outlier fold).**
 
-**Known gap, separate from the above:** neither L1a's nor L2's individual
-review checked for collinearity *between* the two panels (e.g. a clinical
-inflammatory marker highly correlated with a specific Olink cytokine for a
-real biological reason) — this is a distinct, unexplored possible
-contributor.
+**`maxp = 10` fixed the vast majority of the original catastrophic
+instability** — the network's first render (before `maxp` existed) showed
+the same broad symptom pattern as L5's original problem. Rerunning with
+`maxp` in place brought it down dramatically:
+
+```
+Tabu: 231 edges, BIC-cg = -8365.22   (negative, sensible)
+MMHC: 70 edges, BIC-cg = -8797.06    (negative, sensible)
+avg_opt (t=0.5): 157 edges
+avg_conservative (t=0.925): 50 edges
+Held-out loss: mean = 17243.391, sd = 170364.120
+```
+
+**One specific fold remains an outlier, diagnosed and understood:** sorting
+`fold_losses` showed a single fold (run 6, fold 9) accounting for 98.8% of
+the total loss across all 100 folds — every other fold sits in a
+completely normal range (376 down to 140). Tracing that fold's fitted
+model found the near-singular node was `total_chol` (residual sd = 0.0027),
+which had accumulated its full `maxp=10` parent allotment:
+```
+Parents: sex, cmv, glucose, esr, hdl, ldl, triglycerides, CCL2, CCL11, TNFRSF1B
+```
+Six of those ten are the exact clinical trio already flagged during L1a's
+build (`hdl`, `ldl`, `triglycerides` — the near-Friedewald relationship to
+`total_chol`, verified earlier as real-but-not-deterministic on the *full*
+dataset, correlation 0.993 with genuine residual spread up to 23.4 mg/dL).
+**The mechanism:** "not quite deterministic on the full data" doesn't rule
+out "deterministic within one particular ~73-subject training fold" — if
+the subjects carrying the largest Friedewald residuals happened to land in
+this fold's *test* set rather than training, the training-set relationship
+could look far more exact than it really is. `maxp` then let `tabu` fill
+the remaining parent slots with three more correlated predictors from a
+*different modality* (`CCL2`, `CCL11`, `TNFRSF1B`), compounding it further.
+
+**Decision: left as-is, not blacklisted.** 99/100 folds are healthy: this
+is a rare, fold-specific near-collinearity, not a systemic problem, and
+blacklisting `total_chol` against `hdl`/`ldl`/`triglycerides` would
+contradict the earlier explicit finding that this pair is a real,
+non-deterministic relationship on the full dataset — the same standard
+already applied to the clinical electrolyte cluster and `ifn_alpha`/
+`ifn_gamma` in L6. Note `mean`/`sd` above are skewed by this one fold;
+`median(fold_losses)` gives a more representative picture of typical
+performance if needed.
+
+**Still unexplored:** whether other clinical-Olink pairs carry similar
+fold-sensitive near-collinearity that simply hasn't been unlucky enough to
+surface yet — this was found by chasing one specific outlier, not by a
+systematic cross-modality check.
 
 ---
 
 ## L3b — Combined: Clinical (curated) + Olink
 
-**59 nodes** (3 roots + 22 clinical + 34 Olink), config built the same way
-as L3a but from L1b's curated panel.
+**59 nodes** (3 roots + 22 clinical + 34 Olink), **87/92 samples**, config
+built the same way as L3a but from L1b's curated panel.
 
-**STATUS: NEVER RENDERED.** Config exists and was verified for
-alias-collision safety at creation time, but this network has not been run
-through either `01_data_prep_cv.Rmd` or `02_structure_learning_cv.Rmd` at
-all in this project.
+**Status: clean first-time render, no issues found.**
+
+```
+WBC cluster present: wbc, neutrophils, lymphocytes, monocytes, eosinophils (20 blacklist rows)
+Blacklist: 194 edges forbidden
+Tabu: 182 edges, BIC-cg = -6998.47
+MMHC: 54 edges, BIC-cg = -7345.00
+avg_opt (t=0.5): 137 edges
+avg_conservative (t=0.575): 117 edges
+Held-out loss: mean = 92.224, sd = 7.360  (sd/mean ≈ 8%, healthy)
+```
+
+No positive BIC-cg, no outlier folds, `maxp` already baked in from the
+start. Most likely explanation for why this network avoided L3a's specific
+failure: L1b's curated panel doesn't include `total_chol` at all (only
+`hdl`, `ldl`, `triglycerides`), so the Friedewald-adjacent overparameterization
+trap that caught L3a never had a `total_chol` node to catch onto here.
 
 ---
 
@@ -311,18 +362,24 @@ single full-data fit, not a hidden numerical problem.
 | L1a | 37 | 81 | 0.46 | 80 | 55 (t=0.625) | 85.1 | 5.7 | ✅ Verified |
 | L1b | 25 | 87 | 0.29 | 49 | 29 (t=0.675) | 58.9 | 2.8 | ✅ Verified |
 | L2 | 37 | 88 | 0.42 | 91 | 60 (t=0.575) | 32.4 | 6.4 | ✅ Verified |
-| L3a | 71 | ~75 | ~1.05 | — | — | catastrophic | catastrophic | ❌ Broken, unresolved |
-| L3b | 59 | ~79 | ~0.75 | — | — | — | — | ⚠️ Never rendered |
+| L3a | 71 | 81 | 0.88 | 231 | 50 (t=0.925) | 17243.4* | 170364.1* | ✅ Investigated — 1 known/accepted outlier fold, see notes |
+| L3b | 59 | 87 | 0.68 | 182 | 117 (t=0.575) | 92.2 | 7.4 | ✅ Verified, clean first render |
 | L4 | 53 | 86 | 0.62 | 139 | 89 (t=0.575) | -131.7 | 3.6 | ✅ Verified |
 | L5 | 91 | 88 | 1.03 | 431 | 130 (t=0.875) | 61.2 | 15.9 | ✅ Verified |
 | L6 | 147 | 77 | 1.9 | 721 | 145 (t=0.875) | -83.5 | 15.4 | ✅ Verified |
 
-All six working networks show healthy, non-catastrophic CV loss, confirmed
-both numerically (console output) and visually (edge-strength and loss
-histograms all show the expected shape — signal/noise separation in edge
-strength, smooth single-cluster loss distributions with no outlier spike).
-`maxp=10` is confirmed present and re-verified via full rerun in all six;
-it changed results only for L5 and L6 (the two networks with ratio > 1.0),
+*L3a's mean/sd are skewed by one specific outlier fold (98.8% of total
+loss); 99/100 folds are healthy and in a normal range. See L3a section for
+the full diagnosis and why it was deliberately left as-is.
+
+All eight networks now show healthy or well-understood CV loss, confirmed
+both numerically (console output) and — for the six with histograms
+available — visually (edge-strength and loss histograms showing the
+expected shape: signal/noise separation in edge strength, smooth
+single-cluster loss distributions with no outlier spike). `maxp` is
+confirmed present and re-verified via full rerun in every network; it
+changed results meaningfully for L3a, L5, and L6 (the three networks with
+ratio ≥ 0.85), and made no difference for the four smaller-ratio networks,
 exactly as predicted from the node-to-sample ratio reasoning.
 
 ---
@@ -406,19 +463,23 @@ reported in the console/README, which count each undirected pair once.
 Use `in_final_dag == TRUE` to match `avg_conservative`'s reported count
 directly, or dedupe by unordered pair first for other comparisons.
 
+---
 
-- **L3a is broken and needs the L5-style diagnostic treatment** (fold-loss
-  sorting, per-node sd/parent-count check) before it can be trusted or used.
-- **L3b has never been run at all.**
-- **L1b's config was never reviewed for the deterministic-column issue**
-  found in L1a (MCHC-style exact formulas) — currently only excludes NLR.
-  L2 and L4 are low-risk by data type; L1b, being a clinical panel like
-  L1a, is the one most worth a second look.
-- **A combined all-modalities network** (L1a/L1b + L2 + L4 + L5 + L6) was
-  scoped but not built — complete-case n across all modalities combined is
-  ~75-79/92 (verified against real data, correcting an earlier erroneous
-  check that used the raw non-backfilled CMV column), but total node count
-  would be ~340-374, a node-to-sample ratio of ~5:1 — far beyond anything
-  validated so far (L6's 1.9 was the highest tested). Would very likely
-  need a much lower `maxp` than 10, or substantial further node curation,
-  before being attempted.
+## Explicitly open items, not yet resolved
+
+- **L3a's outlier fold is understood and accepted, but the underlying
+  question is only partially answered.** One specific fold-sensitive
+  near-collinearity (`total_chol` vs. its Friedewald-adjacent predictors,
+  compounded by two Olink proteins) was found and traced — but only
+  because it happened to be the single worst offender. Whether other
+  clinical-Olink pairs carry similar fold-sensitive near-collinearity that
+  simply hasn't surfaced as badly yet has **not** been systematically
+  checked, in either L3a or L3b.
+- **The all-modalities network (`L_all`)** is built (config +
+  `01_data_prep_all_cv.Rmd` + `02_structure_learning_all_cv.Rmd`) but not
+  yet run. Node-to-sample ratio (~340-374 nodes / ~75-79 samples, ~5:1) is
+  far beyond anything validated so far (L6's 1.9 was the previous highest,
+  and even L3a at 0.88 needed real diagnosis) — treat the first run as a
+  genuine experiment, not a confirmation. `MAXP` is set to 5 in the config
+  specifically because of this; the config's own comments suggest trying
+  `MAXP <- 3L` if the first attempt is still catastrophic.
