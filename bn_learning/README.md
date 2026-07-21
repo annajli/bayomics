@@ -497,23 +497,32 @@ per-column missingness threshold before complete-case, `maxp=5`.
 
 ```
 bn_learning/
-├── 01_data_prep.Rmd             # Standard data prep (L1a/L1b/L2/L3a/L3b/L4/L6)
-├── 01_data_prep_L5.Rmd          # L5-specific: ALR transform for freq hierarchy
-├── 01_data_prep_all.Rmd         # L_all-specific: programmatic column discovery
-├── 02_structure_learning.Rmd    # Shared: hc/tabu/mmhc + bootstrap (parameterized)
-├── 03_model_comparison.Rmd      # Cross-level comparison
-├── config/                      # Network-level configs (sourced by notebooks)
+├── 00_install_packages.R           # One-time R package setup
+├── 01_data_prep.Rmd                # Standard data prep (L1a/L1b/L2/L3a/L3b/L4/L6)
+├── 01_data_prep_L5.Rmd             # L5-specific: ALR transform for freq hierarchy
+├── 01_data_prep_all.Rmd            # L_all-specific: programmatic column discovery
+├── 02_structure_learning.Rmd       # Shared: hc/tabu/mmhc + bootstrap (parameterized)
+├── 03_model_comparison.Rmd         # Cross-level comparison
+├── export_edge_lists.R             # Standalone: extract edge CSVs from _models.rds
+├── export_network_plots.R          # Standalone: export DAG PNGs from _models.rds
+├── config/                         # Network-level configs (sourced by notebooks)
 ├── output/
-│   ├── models/                  # .rds model + data files
-│   ├── figures/                 # Edge strength histograms
-│   └── mappings/                # *_node_mapping.csv (alias <-> csv column)
-└── rendered/                    # HTML outputs per network level
-    ├── L1a/                     # v1, v2, v3 renders
-    ├── L1b/                     # v1, v2 renders
-    ├── L2/                      # v1, v2 renders
+│   ├── figures/                    # Edge strength histograms
+│   ├── mappings/                   # *_node_mapping.csv (alias <-> csv column)
+│   ├── models/                     # .rds model + data + boot_str files
+│   └── networks/
+│       ├── csv_networks/           # *_literature_edges.csv (full edge lists)
+│       └── visualized_networks/    # *_tabu.png, *_avg_opt.png, *_avg_conservative.png
+└── rendered/                       # HTML outputs per network level
+    ├── L1a/                        # v1, v2, v3 renders
+    ├── L1b/
+    ├── L2/
     ├── L3a/
     ├── L3b/
-    ├── L4/ ... L6/, L_all/      # (pending)
+    ├── L4/
+    ├── L5/
+    ├── L6/
+    ├── L_all/                      # (pending)
     └── comparison/
 ```
 
