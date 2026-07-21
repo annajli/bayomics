@@ -466,12 +466,56 @@ without substantially affecting high-strength edge detection.
 
 ## L_all — Kitchen sink (all modalities)
 
-**Programmatic column discovery** from `bn_ready_baseline.csv` — no static
-`CONTINUOUS_MAP`. Uses `FEATURE_PREFIXES` to select columns, applies 5%
-per-column missingness threshold before complete-case, `maxp=5`.
+**352 nodes** (3 roots + 349 continuous), **75/92 samples** (ratio 4.69 —
+by far the highest of any network). Programmatic column discovery from
+`bn_ready_baseline.csv` using `FEATURE_PREFIXES`, 5% per-column missingness
+threshold before complete-case, `maxp=5`.
 
-**Status: NOT YET RENDERED.** Config and dedicated data prep notebook
-(`01_data_prep_all.Rmd`) exist and parse correctly.
+**Modality breakdown:** 34 Olink + 88 freq (ALR-transformed) + 145 pb
+signaling + clinical (aliased with `bc_`, `chem_`, `lip_`, `infl_` prefixes).
+50 whole blood pathway scores also included.
+
+**Results:**
+```
+hc: 1533 edges   tabu: 1537 edges   mmhc: 350 edges
+avg_opt: 305 edges
+avg_50 (t=0.50): 305 edges
+maxp: 5
+Edges with strength >= 0.85: 118 (undirected)
+```
+
+**High-strength edges recapitulate individual-network findings.** The
+strongest edges are the same ones discovered in the single-modality networks:
+- Clinical: hematocrit↔hemoglobin, neutrophils↔wbc, alt↔ast, ldl↔total_chol (all 1.000)
+- Freq: gating-tree hierarchy edges (l2↔l1_alr, l3↔l2_alr at 1.000)
+- PB: IFN-α↔IFN-γ within-cell-type pairs, core↔isg monocyte co-activation (all 1.000)
+
+**Root-connected edges (strength >= 0.5):**
+| Edge | Strength | Modality | Biology |
+|---|---|---|---|
+| cmv → l3_klrf1_gzmb_cd27_memory_cd4_t_cell_alr | 0.998 | freq | CMV cytotoxic memory CD4 expansion |
+| sex → LEP | 0.893 | olink | Leptin sex dimorphism |
+| sex → chem_creatinine | 0.881 | clinical | Sex differences in muscle mass/creatinine |
+| age → GDF15 | 0.824 | olink | THE aging biomarker |
+| age → l3_sox4_naive_cd4_t_cell_alr | 0.604 | freq | Thymic involution |
+| cmv → l3_gzmk_cd27_em_cd8_t_cell_alt_alr | 0.586 | freq | CMV CD8 effector expansion |
+| cmv → l3_adaptive_nk_cell_alr | 0.514 | freq | CMV adaptive NK cells |
+| sex → IGFBP7 | 0.508 | olink | Sex-linked insulin/growth factor binding |
+
+**Key finding:** The root effects survive the kitchen-sink model and remain
+modality-specific — CMV drives freq (cellular composition), sex/age drive
+olink (protein levels) and clinical labs. No novel cross-modality root effects
+emerge at this scale, validating the single-modality network results.
+
+**Cross-modality edges are sparse** at the conservative threshold. The
+within-modality structure from L1b–L6 dominates. This is expected at a 4.7:1
+node-to-sample ratio with maxp=5 — the aggressive parent cap correctly
+prevents overfitting but also limits the network's ability to discover weaker
+cross-modality connections. The individual L3a/L3b combined networks remain
+better suited for cross-modality investigation.
+
+**Runtime note:** Bootstrap took several hours (1000 replicates × tabu on 352
+nodes with maxp=5).
 
 ---
 
@@ -489,7 +533,7 @@ per-column missingness threshold before complete-case, `maxp=5`.
 | L4 | 53 | 86 | 0.62 | 139 | 86 | 13 | ✅ Clean |
 | L5 | 91 | 88 | 1.03 | 431 | 153 | 52 | ✅ Clean |
 | L6 | 147 | 77 | 1.91 | 721 | 216 | 60 | ✅ Clean |
-| L_all | ~600+ | ~75 | ~8:1 | — | — | — | 🔲 Not yet rendered |
+| L_all | 352 | 75 | 4.69 | 1537 | 305 | 118 | ✅ Clean (maxp=5) |
 
 ---
 
@@ -522,7 +566,7 @@ bn_learning/
     ├── L4/
     ├── L5/
     ├── L6/
-    ├── L_all/                      # (pending)
+    ├── L_all/
     └── comparison/
 ```
 
