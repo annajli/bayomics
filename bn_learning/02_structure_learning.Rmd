@@ -40,6 +40,17 @@ cat(sprintf("Data: %d samples x %d nodes\n", nrow(bn_df), ncol(bn_df)))
 set.seed(SEED)
 MAXP <- if (exists("MAXP", inherits = FALSE)) MAXP else 10L
 cat(sprintf("maxp: %d\n", MAXP))
+
+# L_all's NODE_MAP/aliases are built programmatically at data-prep time, so its
+# config only has LOG_TRANSFORM_CSV (raw csv column names). Recover the alias
+# version from the node mapping csv that 01_data_prep_all.Rmd wrote out.
+if (!exists("LOG_TRANSFORM", inherits = FALSE)) {
+  node_map_path <- file.path("output", "mappings", sprintf("%s_node_mapping.csv", NETWORK_ID))
+  node_map_df <- read.csv(node_map_path, stringsAsFactors = FALSE)
+  LOG_TRANSFORM <- node_map_df$alias[node_map_df$log_transformed]
+  cat(sprintf("LOG_TRANSFORM not defined by config -- recovered %d alias(es) from node mapping: %s\n",
+              length(LOG_TRANSFORM), paste(LOG_TRANSFORM, collapse = ", ")))
+}
 ```
 
 # 2. Generate blacklist
@@ -167,20 +178,32 @@ knitr::kable(comparison, caption = "Edge agreement across algorithms")
 # not params$config, so cached results from one network silently reuse for all
 # subsequent networks. If caching is ever needed, key it to the config file:
 # cache.extra = tools::md5sum(params$config)
-library(parallel)
-set.seed(SEED)
-n_workers <- max(1, detectCores(logical = FALSE) - 1)
-cl <- makeCluster(n_workers)
-cat(sprintf("Bootstrap running on %d worker processes\n", n_workers))
+boot_str_path <- file.path("output", "models", sprintf("%s_boot_str.rds", NETWORK_ID))
 
-boot_str <- boot.strength(
-  bn_df,
-  R = 1000,
-  algorithm = "tabu",
-  algorithm.args = list(score = "bic-cg", blacklist = blacklist, maxp = MAXP),
-  cluster = cl
-)
-stopCluster(cl)
+if (file.exists(boot_str_path)) {
+  cat(sprintf("Found cached bootstrap result at %s -- loading instead of recomputing.\n", boot_str_path))
+  cat("Delete this file to force a fresh bootstrap run.\n")
+  boot_str <- readRDS(boot_str_path)
+} else {
+  library(parallel)
+  set.seed(SEED)
+  n_workers <- max(1, detectCores(logical = FALSE) - 1)
+  cl <- makeCluster(n_workers)
+  cat(sprintf("Bootstrap running on %d worker processes\n", n_workers))
+
+  boot_str <- boot.strength(
+    bn_df,
+    R = 1000,
+    algorithm = "tabu",
+    algorithm.args = list(score = "bic-cg", blacklist = blacklist, maxp = MAXP),
+    cluster = cl
+  )
+  stopCluster(cl)
+
+  # Safety net: persist immediately so a downstream error (e.g. in plotting or
+  # saving) doesn't cost the whole bootstrap again on a re-run.
+  saveRDS(boot_str, boot_str_path)
+}
 
 cat("Bootstrap strength summary:\n")
 print(summary(boot_str$strength))
