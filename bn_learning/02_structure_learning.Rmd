@@ -167,13 +167,20 @@ knitr::kable(comparison, caption = "Edge agreement across algorithms")
 # not params$config, so cached results from one network silently reuse for all
 # subsequent networks. If caching is ever needed, key it to the config file:
 # cache.extra = tools::md5sum(params$config)
+library(parallel)
 set.seed(SEED)
+n_workers <- max(1, detectCores(logical = FALSE) - 1)
+cl <- makeCluster(n_workers)
+cat(sprintf("Bootstrap running on %d worker processes\n", n_workers))
+
 boot_str <- boot.strength(
   bn_df,
   R = 1000,
   algorithm = "tabu",
-  algorithm.args = list(score = "bic-cg", blacklist = blacklist, maxp = MAXP)
+  algorithm.args = list(score = "bic-cg", blacklist = blacklist, maxp = MAXP),
+  cluster = cl
 )
+stopCluster(cl)
 
 cat("Bootstrap strength summary:\n")
 print(summary(boot_str$strength))
