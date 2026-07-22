@@ -502,17 +502,63 @@ strongest edges are the same ones discovered in the single-modality networks:
 | cmv → l3_adaptive_nk_cell_alr | 0.514 | freq | CMV adaptive NK cells |
 | sex → IGFBP7 | 0.508 | olink | Sex-linked insulin/growth factor binding |
 
-**Key finding:** The root effects survive the kitchen-sink model and remain
-modality-specific — CMV drives freq (cellular composition), sex/age drive
-olink (protein levels) and clinical labs. No novel cross-modality root effects
-emerge at this scale, validating the single-modality network results.
+**Key finding: root effects are modality-specific and robust to the
+presence of confounders from other modalities.**
+
+When we learned individual networks (L1b, L2, L5, L6), each root could only
+connect to nodes within that modality. A natural concern is that some of
+those root→node edges might be indirect — mediated through a variable in a
+different modality that wasn't available in the single-modality network. For
+example: if age → GDF15 (seen in L2) were actually mediated by an age-driven
+shift in cell composition (L5), then when cell-frequency nodes become
+available in the combined network, the direct age → GDF15 edge should weaken
+or disappear as the bootstrap finds the mediated path instead.
+
+That does not happen. The root→node edges in L_all are the **same
+root→modality pairings** found in the individual networks, at comparable
+strengths:
+
+| Root effect | L_all strength | Individual network | Individual strength |
+|---|---|---|---|
+| cmv → klrf1_gzmb_cd27_memory_cd4 (freq) | 0.998 | L5 | 1.000 |
+| sex → LEP (olink) | 0.893 | L2_v2 | 0.991 |
+| sex → creatinine (clinical) | 0.881 | — | new to L_all |
+| age → GDF15 (olink) | 0.824 | L2_v2 | 0.991 |
+| age → sox4_naive_cd4 (freq) | 0.604 | L5 | 0.816 |
+| cmv → adaptive_nk_cell (freq) | 0.514 | L5 | 0.800 |
+
+The strengths are somewhat lower in L_all (expected — 352 competing nodes
+dilute bootstrap frequency), but no root→modality pairing reverses or
+vanishes. Crucially:
+
+- **CMV connects only to freq nodes** (cell composition) — not to proteins,
+  not to clinical labs, not to signaling. This is consistent across L2 (where
+  CMV had only weak edges: KLRD1 at 0.882, TNF at ~0.5), L5 (where CMV
+  dominates: 3 of 7 root edges), and now L_all. CMV reshapes *which cells are
+  present*, not what those cells secrete or how they signal.
+- **Age connects to olink (GDF15) and freq (naive T-cells)** but not to
+  signaling (L6) or pathways (L4). The aging signal is in circulating
+  proteins and cellular composition, not per-cell functional responses.
+- **Sex connects to olink (LEP, IGFBP7) and clinical (creatinine)** —
+  adipokine dimorphism and muscle-mass-driven renal filtration. No sex effects
+  on cell frequencies or signaling.
+- **No root→pb signaling edges survive at all** in L_all, matching L6's
+  finding that only age had weak naive-CD8 signaling effects. The signaling
+  modality is largely root-independent once cell composition is accounted for.
+
+This means the individual networks were not finding confounded root effects.
+The CMV→cell, age→protein, sex→adipokine edges are direct (or at minimum,
+not mediated through any variable measured in this dataset). The tiered
+architecture of the network ladder — building up from single-modality to
+combined to kitchen-sink — functions as a built-in sensitivity analysis for
+exactly this kind of confounding concern.
 
 **Cross-modality edges are sparse** at the conservative threshold. The
 within-modality structure from L1b–L6 dominates. This is expected at a 4.7:1
-node-to-sample ratio with maxp=5 — the aggressive parent cap correctly
-prevents overfitting but also limits the network's ability to discover weaker
-cross-modality connections. The individual L3a/L3b combined networks remain
-better suited for cross-modality investigation.
+node-to-sample ratio with maxp=5 — the aggressive parent cap prevents
+overfitting but also limits detection of weaker cross-modality connections.
+The individual L3a/L3b combined networks remain better suited for
+cross-modality investigation (e.g. the CRP↔IL6 edge at ~0.6 in L3b).
 
 **Runtime note:** Bootstrap took several hours (1000 replicates × tabu on 352
 nodes with maxp=5).
