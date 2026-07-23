@@ -23,11 +23,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Every page function is named `render`, so Streamlit would infer the same URL
+# pathname for all of them and error. Give each an explicit, unique url_path.
 nav = st.navigation([
-    st.Page(overview.render, title="Overview", icon="🏠", default=True),
-    st.Page(network_explorer.render, title="Network Explorer", icon="🔗"),
-    st.Page(root_findings.render, title="Root → Modality Findings", icon="🧭"),
-    st.Page(bootstrap_vs_cv.render, title="Bootstrap vs CV", icon="⚖️"),
-    st.Page(validation.render, title="Validation", icon="✅"),
+    st.Page(overview.render, title="Overview", icon="🏠", url_path="overview", default=True),
+    st.Page(network_explorer.render, title="Network Explorer", icon="🔗", url_path="network-explorer"),
+    st.Page(root_findings.render, title="Root → Modality Findings", icon="🧭", url_path="root-findings"),
+    st.Page(bootstrap_vs_cv.render, title="Bootstrap vs CV", icon="⚖️", url_path="bootstrap-vs-cv"),
+    st.Page(validation.render, title="Validation", icon="✅", url_path="validation"),
 ])
 nav.run()

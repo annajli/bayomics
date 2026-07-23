@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+from config.network_registry import LEVEL_ORDER
 from data.loaders import load_edges
 from viz.graph import filter_edges
 
@@ -18,7 +19,6 @@ ROOTS = {
 def _edges_from_root(root: str) -> pd.DataFrame:
     """All final-DAG edges originating at a root, across every network, deduped."""
     frames = []
-    from config.network_registry import LEVEL_ORDER
     for lvl in LEVEL_ORDER:
         try:
             e = filter_edges(load_edges(lvl), threshold=0.0, dag_only=True)

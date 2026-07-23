@@ -4,7 +4,7 @@ from streamlit_agraph import agraph, Config
 from config.network_registry import NETWORKS, LEVEL_ORDER
 from data.loaders import load_edges, load_mapping
 from viz.graph import filter_edges, root_aliases, build_agraph
-from viz.charts import strength_histogram
+from viz.charts import strength_histogram, DEFAULT_STRENGTH_THRESHOLD
 
 
 def render():
@@ -18,8 +18,12 @@ def render():
     if meta["notes"]:
         st.caption(f"ℹ️ {meta['notes']}")
 
-    edges = load_edges(level)
-    mapping = load_mapping(level)
+    try:
+        edges = load_edges(level)
+        mapping = load_mapping(level)
+    except FileNotFoundError as e:
+        st.error(str(e))
+        return
     roots = root_aliases(mapping)
 
     # --- controls -----------------------------------------------------------
@@ -28,7 +32,8 @@ def render():
         dag_only = st.toggle("Final DAG only", value=True,
                              help="Show just the averaged-network edges (recommended).")
     with c2:
-        threshold = st.slider("Min edge strength", 0.0, 1.0, 0.85, 0.01,
+        threshold = st.slider("Min edge strength", 0.0, 1.0,
+                              DEFAULT_STRENGTH_THRESHOLD, 0.01,
                               disabled=dag_only,
                               help="Only used when 'Final DAG only' is off.")
     with c3:

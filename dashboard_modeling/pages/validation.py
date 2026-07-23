@@ -1,15 +1,21 @@
+import pandas as pd
 import streamlit as st
 
+from config.network_registry import NETWORKS
 from data.loaders import load_edges, load_validation
 from viz.format import agreement_rate, scorecard_display
 
 
 def _has_literature_columns() -> bool:
-    """True once the lit-review module has written verdict columns onto the edges."""
-    try:
-        cols = load_edges("L_all").columns
-    except FileNotFoundError:
+    """True once the lit-review module has written verdict columns onto the edges.
+
+    Reads only the CSV header (nrows=0) so it never pulls the full ~123k-row
+    L_all edge list just to inspect column names.
+    """
+    path = NETWORKS["L_all"]["edges"]
+    if not path.exists():
         return False
+    cols = pd.read_csv(path, nrows=0).columns
     return any(c.lower().startswith("lit_") for c in cols)
 
 
@@ -35,7 +41,7 @@ def render():
                "(continuous fold-change). ✓ = observed direction matches the literature.")
     disp = scorecard_display(score)
     st.dataframe(
-        disp.style.format({"Estimate": "{:.3f}", "p-value": "{:.3f}"}),
+        disp.style.format({"Estimate": "{:.3f}", "p-value": "{:.3f}"}, na_rep="—"),
         hide_index=True, use_container_width=True,
     )
     st.caption("Note: this is a small, mostly ceiling-limited cohort (overall seroconversion "
