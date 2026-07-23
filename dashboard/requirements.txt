@@ -1,6 +1,0 @@
-streamlit>=1.58
-plotly>=6.8
-pandas>=2.3
-numpy>=2.0
-nbconvert>=7.16
-watchdog>=4.0

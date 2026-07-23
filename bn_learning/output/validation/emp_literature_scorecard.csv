@@ -1,0 +1,7 @@
+target,term,estimate,direction,expected_dir,agrees,p_value
+seroconvert_any,age_groupOlder Adult,0.41523768318873683,higher,lower,FALSE,0.4956985476601701
+seroconvert_any,sexMale,-0.26937827578883244,lower,lower,TRUE,0.6648960335043579
+seroconvert_any,cmvPositive,0.21513190251490164,higher,lower,FALSE,0.7238732584723596
+igg_log2fc_mean,age_groupOlder Adult,-0.05977890665485882,lower,lower,TRUE,0.6356142905630298
+igg_log2fc_mean,sexMale,-0.1023800799249161,lower,lower,TRUE,0.41181541820953305
+igg_log2fc_mean,cmvPositive,-0.031086691232658423,lower,lower,TRUE,0.8004372006572278

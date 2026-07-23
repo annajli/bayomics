@@ -1,0 +1,11 @@
+root,nonref_level,cell,cell_meaning,boot_strength,flu_target,A_root_to_cell,B_cell_to_flu_slope,B_p,prior_cell_to_flu,implied_root_to_flu,literature_root_to_flu,agrees_literature
+age_group,Older Adult,l3_sox4_naive_cd4_t_cell_alr,naive CD4 T cells (thymic output),0.816,hai_peak_max,-2.079,3.176,0.055,higher = better (naive help),lower,lower,TRUE
+age_group,Older Adult,l3_sox4_naive_cd4_t_cell_alr,naive CD4 T cells (thymic output),0.816,igg_log2fc_mean,-2.079,-0.031,0.675,higher = better (naive help),higher,lower,FALSE
+cmv,Positive,l3_klrf1_gzmb_cd27_memory_cd4_t_cell_alr,cytotoxic memory CD4 (CMV inflation),1,hai_peak_max,3.824,1.231,0.461,higher = worse (memory inflation),higher,lower,FALSE
+cmv,Positive,l3_klrf1_gzmb_cd27_memory_cd4_t_cell_alr,cytotoxic memory CD4 (CMV inflation),1,igg_log2fc_mean,3.824,-0.012,0.874,higher = worse (memory inflation),lower,lower,TRUE
+cmv,Positive,l3_adaptive_nk_cell_alr,adaptive/memory NK (CMV imprint),0.8,hai_peak_max,2.4,-1.531,0.36,higher = worse (CMV imprint),lower,lower,TRUE
+cmv,Positive,l3_adaptive_nk_cell_alr,adaptive/memory NK (CMV imprint),0.8,igg_log2fc_mean,2.4,-0.041,0.578,higher = worse (CMV imprint),lower,lower,TRUE
+sex,Male,l3_early_memory_b_cell_alr,early memory B cells,0.702,hai_peak_max,0.496,-0.858,0.608,higher = better (B maturation),lower,lower(male),TRUE
+sex,Male,l3_early_memory_b_cell_alr,early memory B cells,0.702,igg_log2fc_mean,0.496,-0.03,0.685,higher = better (B maturation),lower,lower(male),TRUE
+age_group,Older Adult,l2_cd16_monocyte_alr,CD16 non-classical monocytes,0.661,hai_peak_max,0.296,-1.471,0.379,higher = worse (inflammaging),lower,lower,TRUE
+age_group,Older Adult,l2_cd16_monocyte_alr,CD16 non-classical monocytes,0.661,igg_log2fc_mean,0.296,-0.065,0.373,higher = worse (inflammaging),lower,lower,TRUE
