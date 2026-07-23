@@ -1,0 +1,16 @@
+target,model,term,estimate,p_value,direction
+seroconvert_any,logistic (crude),age_groupOlder Adult,0.8448938028939844,0.11290015598083324,higher
+seroconvert_any,logistic (crude),sexMale,-0.6142505854775837,0.25068786615815597,lower
+seroconvert_any,logistic (crude),cmvPositive,0.09197729279118107,0.8595106946149454,higher
+seroconvert_any,logistic + baseline,age_groupOlder Adult,0.41523768318873683,0.4956985476601701,higher
+seroconvert_any,logistic + baseline,sexMale,-0.26937827578883244,0.6648960335043579,lower
+seroconvert_any,logistic + baseline,cmvPositive,0.21513190251490164,0.7238732584723596,higher
+igg_log2fc_mean,linear (crude),age_groupOlder Adult,0.11656052308060101,0.42260270594954197,higher
+igg_log2fc_mean,linear (crude),sexMale,-0.22453594714676017,0.1252085702940815,lower
+igg_log2fc_mean,linear (crude),cmvPositive,-0.008595746596527185,0.9529180565945039,lower
+igg_log2fc_mean,linear + baseline,age_groupOlder Adult,-0.05977890665485882,0.6356142905630298,lower
+igg_log2fc_mean,linear + baseline,sexMale,-0.1023800799249161,0.41181541820953305,lower
+igg_log2fc_mean,linear + baseline,cmvPositive,-0.031086691232658423,0.8004372006572278,lower
+hai_peak_max,linear (crude),age_groupOlder Adult,-6.252256175544824,0.06091437947944168,lower
+hai_peak_max,linear (crude),sexMale,0.17980868435265687,0.9566635187092879,higher
+hai_peak_max,linear (crude),cmvPositive,-2.830058631582964,0.39396942392591394,lower

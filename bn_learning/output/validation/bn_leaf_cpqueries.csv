@@ -1,0 +1,25 @@
+target,metric,profile,value
+igg_seroconvert_any,P(seroconvert),Older+CMV+ (suppressed),0.3004
+igg_seroconvert_any,P(seroconvert),Young+CMV- (responsive),0.163
+igg_seroconvert_any,P(seroconvert),Older (any CMV),0.2962
+igg_seroconvert_any,P(seroconvert),Young (any CMV),0.1678
+igg_seroconvert_any,P(seroconvert),CMV+ (any age),0.2382
+igg_seroconvert_any,P(seroconvert),CMV- (any age),0.2305
+igg_seroconvert_any,P(seroconvert),Male (any age/CMV),0.173
+igg_seroconvert_any,P(seroconvert),Female (any age/CMV),0.2827
+igg_log2fc_mean,E[value],Older+CMV+ (suppressed),0.8196
+igg_log2fc_mean,E[value],Young+CMV- (responsive),0.7534
+igg_log2fc_mean,E[value],Older (any CMV),0.812
+igg_log2fc_mean,E[value],Young (any CMV),0.7288
+igg_log2fc_mean,E[value],CMV+ (any age),0.7618
+igg_log2fc_mean,E[value],CMV- (any age),0.7772
+igg_log2fc_mean,E[value],Male (any age/CMV),0.6498
+igg_log2fc_mean,E[value],Female (any age/CMV),0.8681
+hai_peak_max,E[value],Older+CMV+ (suppressed),44.8717
+hai_peak_max,E[value],Young+CMV- (responsive),53.2391
+hai_peak_max,E[value],Older (any CMV),43.0489
+hai_peak_max,E[value],Young (any CMV),49.5208
+hai_peak_max,E[value],CMV+ (any age),45.0625
+hai_peak_max,E[value],CMV- (any age),47.2673
+hai_peak_max,E[value],Male (any age/CMV),46.8848
+hai_peak_max,E[value],Female (any age/CMV),45.5567

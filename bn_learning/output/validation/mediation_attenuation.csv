@@ -1,0 +1,4 @@
+root,cell,flu_target,root_effect_unadj,root_effect_adj,pct_attenuation,stable_estimate
+age_group,l3_sox4_naive_cd4_t_cell_alr,hai_peak_max,-6.576,-4.216,35.9,TRUE
+cmv,l3_klrf1_gzmb_cd27_memory_cd4_t_cell_alr,hai_peak_max,-3.562,-20.842,-485.2,FALSE
+cmv,l3_adaptive_nk_cell_alr,hai_peak_max,-3.562,-2.783,21.9,TRUE
