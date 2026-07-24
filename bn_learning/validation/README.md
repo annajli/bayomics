@@ -2,10 +2,16 @@
 
 Validates the learned Bayesian networks against the **held-out influenza
 vaccine response** (IgG fold change / seroconversion / peak HAI), which was
-deliberately excluded from structure learning. Backbone: the **L5**
-cell-frequency network.
+deliberately excluded from structure learning.
 
-**Read `RESULTS.md` for the findings.** This file is the how-to.
+- **L5 backbone** (scripts 01–04): the deep-dive on the cell-frequency network.
+  **Findings → `RESULTS.md`.**
+- **All networks** (script 05 + `lib_validation.R`): the same validation applied
+  to every network in the ladder — clinical (L1a/L1b), Olink (L2), clinical+Olink
+  (L3a/L3b), whole-blood (L4), cell freq (L5), pseudobulk (L6), and the joint
+  **L_all**. **Findings → `RESULTS_all_networks.md`.**
+
+This file is the how-to.
 
 ## Prerequisites
 
@@ -24,12 +30,13 @@ cell-frequency network.
 From `bn_learning/`:
 
 ```r
-Rscript validation/run_all.R          # all four steps in order
+Rscript validation/run_all.R          # all five steps in order
 # or individually:
 Rscript validation/01_assemble_validation_data.R
 Rscript validation/02_empirical_benchmark.R
 Rscript validation/03_bn_leaf_queries.R
 Rscript validation/04_mediation_check.R
+Rscript validation/05_validate_all_networks.R   # every network (uses lib_validation.R)
 ```
 
 Scripts resolve paths relative to `bn_learning/`, so they also run unchanged
@@ -43,6 +50,8 @@ from inside `validation/`.
 | `02_empirical_benchmark.R` | Establish the empirical ground truth: crude + baseline-adjusted root effects, per-antigen breakdown, literature scorecard | `emp_*.csv` |
 | `03_bn_leaf_queries.R` | Attach the held-out outcome as a leaf of the roots on the fixed L5 DAG, fit its CPD, query `P(seroconvert \| age, cmv)` etc. by likelihood weighting | `bn_leaf_cpqueries.csv`, `bn_leaf_contrasts.csv` |
 | `04_mediation_check.R` | Structural test: compose learned `root → cell` edges with held-out `cell → flu` relationships; mediation attenuation | `mediation_edges.csv`, `mediation_attenuation.csv` |
+| `lib_validation.R` | Shared machinery: universal subject recovery, flu summaries, leaf query, structural scoring, attenuation — network-agnostic | (library) |
+| `05_validate_all_networks.R` | Run recovery + structural validation for **all 9 networks**; combined scorecard + flagship axes + attenuation | `all_networks_*.csv`, `leaf_root_benchmark.csv`, `<id>_validation_joined.rds` |
 
 ## Design in one paragraph
 

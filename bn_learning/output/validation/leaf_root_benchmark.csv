@@ -1,0 +1,4 @@
+target,older_minus_young,male_minus_female,cmvpos_minus_neg
+igg_seroconvert_any,0.146,-0.105,0.02
+igg_log2fc_mean,0.117,-0.225,-0.009
+hai_peak_max,-6.252,0.18,-2.83
