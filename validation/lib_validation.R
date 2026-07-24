@@ -34,8 +34,15 @@
 #       fraction that do — especially among features that are themselves flu-
 #       relevant — is that network's structural-validation score.
 #
-# Everything is host-agnostic: paths resolve relative to bn_learning/ whether a
-# caller runs from bn_learning/ or bn_learning/validation/.
+# TWO MODEL SOURCES. The same validation runs against either structure-learning
+# pipeline, selected by `source`:
+#   * "bootstrap" -> bn_learning/  (bootstrap model averaging; strength = boot_str)
+#   * "cv"        -> bn_cv/         (cross-validated;          strength = cv_str)
+# Both carry the same networks and a from/to/strength/direction strength frame,
+# so every function below is source-agnostic.
+#
+# Host-agnostic: the repo root is located by walking up from the working dir, so
+# scripts run identically from the repo root or from validation/.
 # =============================================================================
 
 suppressMessages({
@@ -44,39 +51,88 @@ suppressMessages({
   library(dplyr)
 })
 
-# --- Paths -------------------------------------------------------------------
-val_here_bn <- if (file.exists("config")) "." else ".."
-VAL_MODELS  <- file.path(val_here_bn, "output", "models")
-VAL_MAPS    <- file.path(val_here_bn, "output", "mappings")
-VAL_OUT     <- file.path(val_here_bn, "output", "validation")
-VAL_BASE    <- file.path(val_here_bn, "..", "data", "processed", "bn_ready_baseline.csv")
-VAL_FLU     <- file.path(val_here_bn, "..", "data", "processed", "flu_response_validation.csv")
+# --- Repo root (walk up until data/processed is found) -----------------------
+find_repo_root <- function() {
+  d <- normalizePath(getwd())
+  for (i in 1:6) {
+    if (dir.exists(file.path(d, "data", "processed")) &&
+        dir.exists(file.path(d, "bn_learning"))) return(d)
+    d <- dirname(d)
+  }
+  stop("Could not locate repo root (expected data/processed and bn_learning/).")
+}
+VAL_ROOT <- find_repo_root()
+VAL_OUT  <- file.path(VAL_ROOT, "validation", "output")
+VAL_BASE <- file.path(VAL_ROOT, "data", "processed", "bn_ready_baseline.csv")
+VAL_FLU  <- file.path(VAL_ROOT, "data", "processed", "flu_response_validation.csv")
 dir.create(VAL_OUT, showWarnings = FALSE, recursive = TRUE)
+
+# Per-source model dir, mapping dir, and the name of the edge-strength object.
+SOURCE_SPEC <- list(
+  bootstrap = list(models = file.path(VAL_ROOT, "bn_learning", "output", "models"),
+                   maps   = file.path(VAL_ROOT, "bn_learning", "output", "mappings"),
+                   strength = "boot_str"),
+  cv        = list(models = file.path(VAL_ROOT, "bn_cv", "output", "models"),
+                   maps   = file.path(VAL_ROOT, "bn_cv", "output", "mappings"),
+                   strength = "cv_str")
+)
 
 ROOTS <- c("age_group", "sex", "cmv")
 
-# Canonical (data, models, node-mapping) triple per network. Uses the version
-# each team pipeline last committed as its fitted artifact.
+# Per network: the bootstrap artifact id + node-map, and the cv file "base" (cv
+# files are <base>_{models,data}_cv.rds and <base>_node_mapping_cv.csv, except
+# L_all which the cv pipeline named without the _cv suffix — the resolver globs
+# with an optional _cv, so both conventions work).
 NETWORKS <- list(
-  L1a  = list(id = "L1a_clinical_full_v3",      map = "L1a_clinical_full_v3_node_mapping.csv",
+  L1a  = list(boot_id = "L1a_clinical_full_v3", boot_map = "L1a_clinical_full_v3_node_mapping.csv",
+              cv_base = "L1a_clinical_full",
               label = "Clinical (full)",        modality = "clinical"),
-  L1b  = list(id = "L1b_clinical_curated",      map = "L1b_clinical_curated_node_mapping.csv",
+  L1b  = list(boot_id = "L1b_clinical_curated", boot_map = "L1b_clinical_curated_node_mapping.csv",
+              cv_base = "L1b_clinical_curated",
               label = "Clinical (curated)",     modality = "clinical"),
-  L2   = list(id = "L2_olink_v2",               map = "L2_olink_v2_node_mapping.csv",
+  L2   = list(boot_id = "L2_olink_v2",          boot_map = "L2_olink_v2_node_mapping.csv",
+              cv_base = "L2_olink",
               label = "Olink (plasma protein)", modality = "olink"),
-  L3a  = list(id = "L3a_clinical_full_olink",   map = "L3a_clinical_full_olink_node_mapping.csv",
+  L3a  = list(boot_id = "L3a_clinical_full_olink", boot_map = "L3a_clinical_full_olink_node_mapping.csv",
+              cv_base = "L3a_clinical_full_olink",
               label = "Clinical(full)+Olink",   modality = "clinical+olink"),
-  L3b  = list(id = "L3b_clinical_curated_olink",map = "L3b_clinical_curated_olink_node_mapping.csv",
+  L3b  = list(boot_id = "L3b_clinical_curated_olink", boot_map = "L3b_clinical_curated_olink_node_mapping.csv",
+              cv_base = "L3b_clinical_curated_olink",
               label = "Clinical(curated)+Olink",modality = "clinical+olink"),
-  L4   = list(id = "L4_wb_pathways",            map = "L4_wb_pathways_node_mapping.csv",
+  L4   = list(boot_id = "L4_wb_pathways",       boot_map = "L4_wb_pathways_node_mapping.csv",
+              cv_base = "L4_wb_pathways",
               label = "Whole-blood pathways",   modality = "wb"),
-  L5   = list(id = "L5_freq_immunophenotype",   map = "L5_freq_immunophenotype_node_mapping.csv",
+  L5   = list(boot_id = "L5_freq_immunophenotype", boot_map = "L5_freq_immunophenotype_node_mapping.csv",
+              cv_base = "L5_freq_immunophenotype",
               label = "Immune cell frequency",  modality = "freq"),
-  L6   = list(id = "L6_pb_signaling",           map = "L6_pb_signaling_node_mapping.csv",
+  L6   = list(boot_id = "L6_pb_signaling",      boot_map = "L6_pb_signaling_node_mapping.csv",
+              cv_base = "L6_pb_signaling",
               label = "Pseudobulk signaling",   modality = "pb"),
-  L_all= list(id = "L_all",                     map = "L_all_node_mapping.csv",
+  L_all= list(boot_id = "L_all",               boot_map = "L_all_node_mapping.csv",
+              cv_base = "L_all",
               label = "Joint (all modalities)", modality = "all")
 )
+
+# Resolve the {models, data, map, strength} file paths for a (network, source).
+resolve_files <- function(net, source = "bootstrap") {
+  spec <- NETWORKS[[net]]; ss <- SOURCE_SPEC[[source]]
+  if (source == "bootstrap") {
+    return(list(models = file.path(ss$models, paste0(spec$boot_id, "_models.rds")),
+                data   = file.path(ss$models, paste0(spec$boot_id, "_data.rds")),
+                map    = file.path(ss$maps,  spec$boot_map),
+                strength = ss$strength))
+  }
+  # cv: glob with an optional _cv suffix so both naming conventions resolve.
+  pick <- function(dir, pat) {
+    f <- list.files(dir, pattern = pat, full.names = TRUE)
+    if (!length(f)) NA_character_ else f[which.min(nchar(f))]
+  }
+  b <- spec$cv_base
+  list(models = pick(ss$models, paste0("^", b, "_models(_cv)?\\.rds$")),
+       data   = pick(ss$models, paste0("^", b, "_data(_cv)?\\.rds$")),
+       map    = pick(ss$maps,  paste0("^", b, "_node_mapping(_cv)?\\.csv$")),
+       strength = ss$strength)
+}
 
 # --- Held-out flu summaries (built once, shared) -----------------------------
 # Returns subject.subjectGuid + per-antigen targets + the four per-subject
@@ -106,8 +162,9 @@ load_flu_summaries <- function() {
 FLU_TARGETS <- c("hai_peak_max", "igg_log2fc_mean")   # continuous, well-powered
 
 # --- Node-mapping loader (tolerant of the two CSV schemas in the repo) --------
-load_node_map <- function(map_file) {
-  mp <- suppressMessages(read_csv(file.path(VAL_MAPS, map_file), show_col_types = FALSE))
+# Takes a full path (from resolve_files), so it works for either source.
+load_node_map <- function(map_path) {
+  mp <- suppressMessages(read_csv(map_path, show_col_types = FALSE))
   names(mp)[1:2] <- c("alias", "csv_column")
   mp$log_transformed <- if ("log_transformed" %in% names(mp))
     as.logical(mp$log_transformed) else FALSE
@@ -137,11 +194,10 @@ load_node_map <- function(map_file) {
 # recover_join(net) — recover subject IDs for a network and join flu outcomes.
 # Returns the joined data.frame (also cached to <id>_validation_joined.rds/csv).
 # =============================================================================
-recover_join <- function(net, verbose = TRUE) {
-  spec <- NETWORKS[[net]]
-  d  <- readRDS(file.path(VAL_MODELS, paste0(spec$id, "_data.rds")))
-  d  <- as.data.frame(d)
-  mp <- load_node_map(spec$map)
+recover_join <- function(net, source = "bootstrap", verbose = TRUE) {
+  rf <- resolve_files(net, source)
+  d  <- as.data.frame(readRDS(rf$data))
+  mp <- load_node_map(rf$map)
   bn <- suppressMessages(read_csv(VAL_BASE, show_col_types = FALSE))
 
   cont <- setdiff(names(d), ROOTS)
@@ -192,10 +248,10 @@ recover_join <- function(net, verbose = TRUE) {
   n_out <- sum(!is.na(joined$igg_seroconvert_any))
 
   if (verbose)
-    cat(sprintf("[%-5s] recovered %d subjects on %d aligning cols; %d have flu outcomes\n",
-                net, nrow(d), length(used), n_out))
+    cat(sprintf("[%-5s/%-9s] recovered %d subjects on %d aligning cols; %d have flu outcomes\n",
+                net, source, nrow(d), length(used), n_out))
 
-  saveRDS(joined, file.path(VAL_OUT, paste0(spec$id, "_validation_joined.rds")))
+  saveRDS(joined, file.path(VAL_OUT, sprintf("%s_%s_validation_joined.rds", net, source)))
   invisible(joined)
 }
 
@@ -230,10 +286,14 @@ leaf_root_query <- function(joined) {
 # literature root->response direction (age Older -> lower, cmv Positive -> lower,
 # sex Male -> lower). Returns a per-edge table plus a one-row network scorecard.
 # =============================================================================
-structural_validation <- function(net, joined, str_thr = 0.5, verbose = TRUE) {
+structural_validation <- function(net, joined, source = "bootstrap",
+                                  str_thr = 0.5, verbose = TRUE) {
   spec <- NETWORKS[[net]]
-  m  <- readRDS(file.path(VAL_MODELS, paste0(spec$id, "_models.rds")))
-  bs <- m$boot_str
+  rf <- resolve_files(net, source)
+  m  <- readRDS(rf$models)
+  bs <- m[[rf$strength]]        # boot_str (bootstrap) or cv_str (cv)
+  if (is.null(bs)) stop(sprintf("[%s/%s] strength object '%s' not in model list.",
+                                net, source, rf$strength))
   d  <- joined
 
   # Confident root -> feature edges (feature must be a continuous node we have).
@@ -255,7 +315,8 @@ structural_validation <- function(net, joined, str_thr = 0.5, verbose = TRUE) {
       b  <- coef(f)["cz"]; p <- summary(f)$coefficients["cz", 4]
       implied <- ifelse(sign(a) * sign(b) < 0, "lower", "higher")
       rows[[length(rows) + 1]] <- data.frame(
-        network = net, root = root, feature = cell, strength = round(fr$strength[i], 3),
+        network = net, source = source, root = root, feature = cell,
+        strength = round(fr$strength[i], 3),
         flu_target = ft, A_root_to_feature = round(a, 3),
         B_feature_to_flu = round(b, 3), B_p = round(p, 3),
         implied_root_to_flu = implied,
@@ -270,8 +331,8 @@ structural_validation <- function(net, joined, str_thr = 0.5, verbose = TRUE) {
   # Network scorecard: overall agreement, agreement among flu-relevant edges, and
   # a strength x |B| weighted directional vote per root (aggregates weak signal).
   if (nrow(edges) == 0) {
-    score <- data.frame(network = net, label = spec$label, n_subjects = nrow(d),
-                        n_root_edges = 0, n_flu_relevant = 0,
+    score <- data.frame(network = net, source = source, label = spec$label,
+                        n_subjects = nrow(d), n_root_edges = 0, n_flu_relevant = 0,
                         agree_all = NA, agree_relevant = NA,
                         wvote_age = NA, wvote_sex = NA, wvote_cmv = NA)
     return(list(edges = edges, score = score))
@@ -285,7 +346,7 @@ structural_validation <- function(net, joined, str_thr = 0.5, verbose = TRUE) {
   }
   rel <- edges[edges$flu_relevant, ]
   score <- data.frame(
-    network = net, label = spec$label, n_subjects = nrow(d),
+    network = net, source = source, label = spec$label, n_subjects = nrow(d),
     n_root_edges  = length(unique(paste(edges$root, edges$feature))),
     n_flu_relevant = length(unique(paste(rel$root, rel$feature))),
     agree_all      = round(mean(edges$agrees), 3),
@@ -293,10 +354,9 @@ structural_validation <- function(net, joined, str_thr = 0.5, verbose = TRUE) {
     wvote_age = wvote("age_group"), wvote_sex = wvote("sex"), wvote_cmv = wvote("cmv"))
 
   if (verbose)
-    cat(sprintf("[%-5s] %d root-edges (%d flu-relevant); agree_all=%.0f%% agree_relevant=%s\n",
-                net, score$n_root_edges, score$n_flu_relevant, 100 * score$agree_all,
-                ifelse(is.na(score$agree_relevant), "NA",
-                       paste0(round(100 * score$agree_relevant), "%"))))
+    cat(sprintf("[%-5s/%-9s] %d root-edges (%d flu-relevant); wvote age/sex/cmv = %s/%s/%s\n",
+                net, source, score$n_root_edges, score$n_flu_relevant,
+                score$wvote_age, score$wvote_sex, score$wvote_cmv))
   list(edges = edges, score = score)
 }
 

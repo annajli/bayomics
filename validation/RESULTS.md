@@ -155,9 +155,10 @@ most convincingly for:
 
 ## Files
 
-Pipeline (`bn_learning/validation/`, run `Rscript validation/run_all.R`):
+Pipeline (`validation/`, run `Rscript validation/run_all.R`):
 `01_assemble_validation_data.R` → `02_empirical_benchmark.R` →
-`03_bn_leaf_queries.R` → `04_mediation_check.R`.
+`03_bn_leaf_queries.R` → `04_mediation_check.R`. All-network extension:
+`05_validate_all_networks.R` → `RESULTS_all_networks.md`.
 
-Outputs (`bn_learning/output/validation/`): `L5_validation_joined.{rds,csv}`,
+Outputs (`validation/output/`): `L5_validation_joined.{rds,csv}`,
 `emp_*.csv`, `bn_leaf_*.csv`, `mediation_*.csv`.

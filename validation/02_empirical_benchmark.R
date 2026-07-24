@@ -31,9 +31,9 @@
 
 suppressMessages({ library(readr); library(dplyr); library(tidyr) })
 
-here_bn <- if (file.exists("config")) "." else ".."
-val_rds <- file.path(here_bn, "output", "validation", "L5_validation_joined.rds")
-out_dir <- file.path(here_bn, "output", "validation")
+source(if (file.exists("_paths.R")) "_paths.R" else "validation/_paths.R")
+val_rds <- file.path(OUT_DIR, "L5_validation_joined.rds")
+out_dir <- OUT_DIR
 stopifnot(file.exists(val_rds))
 d <- readRDS(val_rds)
 
@@ -50,8 +50,8 @@ igg_d0_cols       <- NULL  # baseline titers live in the raw file; see below
 
 # Baseline (Day-0) IgG titers are needed as the confounder control. They are in
 # the source validation csv, not carried into the joined frame — pull them.
-val_raw <- read_csv(file.path(here_bn, "..", "data", "processed",
-                              "flu_response_validation.csv"), show_col_types = FALSE)
+val_raw <- read_csv(file.path(DATA_PROC, "flu_response_validation.csv"),
+                    show_col_types = FALSE)
 # The 7 real Day-0 titer columns share the antigen suffixes of the log2FC
 # columns; the same "igg_d0" prefix also matches boolean QC flags
 # (_replspread_flag, _hightiter_flag) which we must exclude.

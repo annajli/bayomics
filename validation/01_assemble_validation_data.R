@@ -39,14 +39,14 @@ suppressMessages({
   library(dplyr)
 })
 
-# --- Paths (script is host-agnostic: resolve relative to bn_learning/) --------
-# Works whether invoked from bn_learning/ or bn_learning/validation/.
-here_bn <- if (file.exists("config")) "." else ".."
-cfg_path   <- file.path(here_bn, "config", "L5_freq_immunophenotype.R")
-base_path  <- file.path(here_bn, "..", "data", "processed", "bn_ready_baseline.csv")
-val_path   <- file.path(here_bn, "..", "data", "processed", "flu_response_validation.csv")
-model_path <- file.path(here_bn, "output", "models", "L5_freq_immunophenotype_data.rds")
-out_dir    <- file.path(here_bn, "output", "validation")
+# --- Paths (location-agnostic: resolve against the repo root) ------------------
+# Works whether invoked from the repo root or from validation/.
+source(if (file.exists("_paths.R")) "_paths.R" else "validation/_paths.R")
+cfg_path   <- file.path(BL_CONFIG, "L5_freq_immunophenotype.R")
+base_path  <- file.path(DATA_PROC, "bn_ready_baseline.csv")
+val_path   <- file.path(DATA_PROC, "flu_response_validation.csv")
+model_path <- file.path(BL_MODELS, "L5_freq_immunophenotype_data.rds")
+out_dir    <- OUT_DIR
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 stopifnot(file.exists(cfg_path), file.exists(base_path),

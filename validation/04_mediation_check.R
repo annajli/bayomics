@@ -36,10 +36,9 @@
 
 suppressMessages({ library(bnlearn); library(dplyr); library(readr) })
 
-here_bn <- if (file.exists("config")) "." else ".."
-out_dir <- file.path(here_bn, "output", "validation")
-m <- readRDS(file.path(here_bn, "output", "models",
-                       "L5_freq_immunophenotype_models.rds"))
+source(if (file.exists("_paths.R")) "_paths.R" else "validation/_paths.R")
+out_dir <- OUT_DIR
+m <- readRDS(file.path(BL_MODELS, "L5_freq_immunophenotype_models.rds"))
 d <- readRDS(file.path(out_dir, "L5_validation_joined.rds"))
 
 d$age_group <- factor(d$age_group, levels = c("Young Adult", "Older Adult"))

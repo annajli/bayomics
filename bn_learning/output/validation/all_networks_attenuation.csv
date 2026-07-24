@@ -1,9 +1,0 @@
-network,root,feature,flu_target,effect_unadj,effect_adj,pct_attenuation,stable
-L2,age_group,GDF15,hai_peak_max,-6.576,-8.598,-30.7,TRUE
-L3a,age_group,GDF15,hai_peak_max,-6.232,-8.815,-41.4,TRUE
-L3b,age_group,GDF15,hai_peak_max,-6.389,-8.317,-30.2,TRUE
-L5,age_group,l3_sox4_naive_cd4_t_cell_alr,hai_peak_max,-6.576,-4.216,35.9,TRUE
-L5,cmv,l3_adaptive_nk_cell_alr,hai_peak_max,-3.562,-2.783,21.9,TRUE
-L_all,age_group,l3_sox4_naive_cd4_t_cell_alr,hai_peak_max,-7.213,-5.706,20.9,TRUE
-L_all,age_group,GDF15,hai_peak_max,-7.213,-7.715,-7,TRUE
-L_all,cmv,l3_adaptive_nk_cell_alr,hai_peak_max,-5.159,-5.698,-10.5,TRUE

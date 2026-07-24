@@ -34,10 +34,9 @@
 suppressMessages({ library(bnlearn); library(dplyr); library(readr) })
 set.seed(46)
 
-here_bn <- if (file.exists("config")) "." else ".."
-out_dir <- file.path(here_bn, "output", "validation")
-m <- readRDS(file.path(here_bn, "output", "models",
-                       "L5_freq_immunophenotype_models.rds"))
+source(if (file.exists("_paths.R")) "_paths.R" else "validation/_paths.R")
+out_dir <- OUT_DIR
+m <- readRDS(file.path(BL_MODELS, "L5_freq_immunophenotype_models.rds"))
 d <- readRDS(file.path(out_dir, "L5_validation_joined.rds"))
 
 roots <- c("age_group", "sex", "cmv")

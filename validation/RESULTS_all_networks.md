@@ -3,11 +3,23 @@
 This extends the L5-only validation (`RESULTS.md`) to **every learned network**
 in the ladder: clinical (L1a, L1b), Olink plasma protein (L2), clinical+Olink
 (L3a, L3b), whole-blood pathways (L4), cell frequency (L5), pseudobulk signaling
-(L6), and the **joint all-modality network (L_all)**.
+(L6), and the **joint all-modality network (L_all)** — and to **both
+structure-learning pipelines**: `bn_learning/` (bootstrap model averaging) and
+`bn_cv/` (cross-validated). So each network is validated twice, from two
+independently learned structures.
 
 The held-out target is unchanged: per-antigen IgG fold change / seroconversion
 (≥4×) and peak HAI, deliberately excluded from structure learning, joined back
-per subject. Pipeline: `05_validate_all_networks.R` (+ `lib_validation.R`).
+per subject. Pipeline: `validation/05_validate_all_networks.R` (+ `lib_validation.R`).
+
+**Bootstrap vs CV, in one line:** the cross-validated structures reproduce the
+bootstrap findings almost exactly (age votes 0.62–1.0 under both; the GDF15,
+naive-CD4, and KLRD1 flagship axes identical), so the biology below is not an
+artifact of a single structure-learning method. Subject recovery, the held-out
+`feature → flu` slopes, and the leaf benchmark are shared across sources (same
+subjects, same outcomes); only which `root → feature` edges each pipeline
+*learned* differs. Numbers in the tables below are the bootstrap source unless a
+CV column is shown; full per-source rows are in `all_networks_scorecard.csv`.
 
 ---
 
@@ -48,22 +60,24 @@ All 9 networks recovered cleanly (75–88 subjects, 100% with flu outcomes).
 
 ## Scorecard (weighted directional votes are the signal)
 
-| Net | Modality | n | root edges | wvote age | wvote sex | wvote cmv |
-|-----|----------|:--:|:--:|:--:|:--:|:--:|
-| **L_all** | Joint (all) | 75 | 8 | **+0.98** | −1.00 | +0.54 |
-| L5  | Cell frequency | 88 | 7 | **+0.97** | **+1.00** | +0.28 |
-| L1a | Clinical (full) | 81 | 9 | **+0.87** | −0.81 | — |
-| L1b | Clinical (curated) | 87 | 7 | **+0.91** | −0.60 | — |
-| L2  | Olink | 88 | 9 | **+0.74** | −0.91 | **+1.00** |
-| L3a | Clinical+Olink | 81 | 16 | **+0.62** | −0.84 | **+0.99** |
-| L3b | Clinical+Olink | 87 | 11 | **+0.79** | −0.91 | **+1.00** |
-| L6  | Pseudobulk | 77 | 2 | **+1.00** | — | — |
-| L4  | WB pathways | 86 | 1 | — | −0.84 | — |
+Weighted age-vote shown for **both** sources to demonstrate the CV agreement:
+
+| Net | Modality | n | wvote age (boot / cv) | wvote sex | wvote cmv (boot / cv) |
+|-----|----------|:--:|:--:|:--:|:--:|
+| **L_all** | Joint (all) | 75 | **+0.98 / +0.98** | −1.00 | +0.54 / +0.74 |
+| L5  | Cell frequency | 88 | **+0.97 / +0.98** | **+1.00** | +0.28 / +0.04 |
+| L1a | Clinical (full) | 81 | **+0.87 / +0.88** | −0.81 | — |
+| L1b | Clinical (curated) | 87 | **+0.91 / +0.87** | −0.60 | — |
+| L2  | Olink | 88 | **+0.74 / +0.78** | −0.91 | +1.00 / — |
+| L3a | Clinical+Olink | 81 | **+0.62 / +0.74** | −0.84 | +0.99 / — |
+| L3b | Clinical+Olink | 87 | **+0.79 / +0.80** | −0.91 | +1.00 / — |
+| L6  | Pseudobulk | 77 | **+1.00 / +1.00** | — | — |
+| L4  | WB pathways | 86 | — | −0.84 | — |
 
 **Age is validated by every network that carries age → feature edges** (weighted
-vote +0.62 … +1.00, all positive). **CMV is validated wherever it has edges**
-(L2/L3a/L3b ≈ +1.0; L_all +0.54). **Sex votes negative in most networks** — this
-is a *target artifact, not a network failure* (see below).
+vote +0.62 … +1.00, positive under **both** bootstrap and CV). **CMV is validated
+wherever it has edges** (L2/L3a/L3b ≈ +1.0; L_all +0.54/+0.74). **Sex votes
+negative in most networks** — a *target artifact, not a network failure* (below).
 
 ---
 
@@ -161,11 +175,13 @@ edge composes correctly).
 - Sex validation is target-dependent (clean on IgG, not on HAI peak here).
 - CCL11 and cytotoxic-memory-CD4 edges are noisy / sign-unstable — flagged, not hidden.
 
-## Files (`output/validation/`)
+## Files (`validation/output/`)
 
-- `all_networks_scorecard.csv` — per-network votes + agreement
+Every per-network table carries a `source` column (`bootstrap` | `cv`):
+
+- `all_networks_scorecard.csv` — per-(network,source) votes + agreement
 - `all_networks_structural_edges.csv` — every scored root → feature edge
 - `all_networks_flagship_axes.csv` — canonical marker axes
 - `all_networks_attenuation.csv` — mediation attenuation
 - `leaf_root_benchmark.csv` — network-invariant `P/E(response | roots)`
-- `<id>_validation_joined.rds` — per-network subject-aligned joins
+- `<net>_<source>_validation_joined.rds` — per-(network,source) subject-aligned joins
