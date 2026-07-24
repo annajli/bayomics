@@ -4,4 +4,4 @@ docs/
 __pycache__/
 *.py[cod]
 02_structure_learning_cache/
-*_cache/
+*_cache/.DS_Store
