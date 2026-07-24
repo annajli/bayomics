@@ -182,6 +182,7 @@ def inject_css() -> None:
           background: var(--ink);
         }
         [data-testid="stSidebar"] * { color: #E7E9EF !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] * { color: #16233B !important; }
         [data-testid="stSidebar"] hr { border-color: #2C3B58; }
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: #9FAAC0 !important; }
 
