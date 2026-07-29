@@ -1,0 +1,282 @@
+feature_name,glossary_concept
+age_group,Binned/categorical age group (demographic covariate).
+lip_cholesterol_total,Total cholesterol (lipid panel).
+GDF15,"Growth Differentiation Factor 15 -- stress-response cytokine, marker of aging/mitochondrial stress."
+sex,Biological sex (demographic covariate).
+chem_creatinine,"Creatinine -- waste product of muscle metabolism, kidney function marker."
+IGFBP7,Insulin-like Growth Factor Binding Protein 7 -- senescence/growth-regulatory protein.
+LEP,Leptin -- hormone from fat tissue that regulates appetite/energy balance.
+cmv,"Cytomegalovirus serostatus -- prior CMV infection profoundly reshapes the T/NK cell repertoire, common covariate in immune-aging studies."
+l3_klrf1_gzmb_cd27_memory_cd4_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of KLRF1+ Granzyme B+ CD27+ memory CD4 T cell among PBMCs.
+l3_gzmk_cd27_em_cd8_t_cell_alt_alr,Additive-log-ratio (alr) transformed relative abundance of Granzyme K+ CD27+ effector memory CD8 T cell among PBMCs.
+bc_hematocrit,Percent of blood volume made up of red blood cells (CBC).
+bc_hemoglobin,Oxygen-carrying protein in red blood cells (CBC).
+bc_red_blood_cell_count,Red blood cell count (CBC).
+chem_alt,"Alanine aminotransferase -- liver enzyme, liver injury marker."
+bc_mpv,Mean platelet volume -- average size of platelets (CBC).
+bc_platelet_count,Platelet count -- cell fragments involved in blood clotting (CBC).
+bc_rdw,Red cell distribution width -- variability in red blood cell size (CBC).
+chem_albumin,"Albumin -- main blood protein, made by the liver (nutrition/liver/kidney marker)."
+chem_calcium,Serum calcium level.
+chem_protein,Total serum protein.
+chem_ast,"Aspartate aminotransferase -- liver enzyme, liver injury marker."
+l3_cd4_mait_alr,Additive-log-ratio (alr) transformed relative abundance of CD4 MAIT cell among PBMCs.
+l3_gzmb_vd2_gdt_alr,Additive-log-ratio (alr) transformed relative abundance of Granzyme B+ Vδ2 gamma-delta T cell among PBMCs.
+chem_cl,Serum chloride (electrolyte).
+chem_co2,Serum bicarbonate/CO2 -- acid-base status.
+pb_cm_cd8_t_cell_inflammatory,Pathway activity score for inflammatory response within central memory CD8 T cell (peripheral blood).
+chem_bun,Blood urea nitrogen -- kidney function marker.
+chem_globin,Globulin -- blood proteins including antibodies (often total protein minus albumin).
+infl_esr,Erythrocyte sedimentation rate -- nonspecific marker of inflammation.
+infl_hs_crp,High-sensitivity C-reactive protein -- acute-phase inflammation marker.
+IL6,Interleukin-6 -- major pro-inflammatory cytokine.
+lip_cholesterol_hdl,HDL ('good') cholesterol (lipid panel).
+lip_triglycerides,Triglycerides -- blood fat level (lipid panel).
+lip_cholesterol_ldl,LDL ('bad') cholesterol (lipid panel).
+IL1RN,Interleukin-1 Receptor Antagonist -- dampens IL-1 inflammatory signaling.
+TNF,Tumor Necrosis Factor (alpha) -- major pro-inflammatory cytokine.
+PDCD1,"PD-1 -- immune checkpoint receptor on T cells, dampens T cell activity."
+CXCL8,Interleukin-8 -- chemokine that recruits neutrophils.
+CCL2,MCP-1 -- chemokine that recruits monocytes.
+CXCL9,"MIG -- interferon-gamma-induced chemokine, recruits T cells."
+CXCL10,"IP-10 -- interferon-induced chemokine, recruits T cells."
+TNFRSF1A,TNF Receptor 1 (TNF-R1) -- receptor mediating TNF signaling.
+TNFRSF1B,TNF Receptor 2 (TNF-R2) -- receptor mediating TNF signaling.
+HAVCR2,"TIM-3 -- immune checkpoint receptor, marks exhausted T/NK cells."
+GZMA,Granzyme A -- cytotoxic enzyme released by NK/T cells.
+LAG3,"LAG-3 -- immune checkpoint receptor, dampens T cell activity."
+GZMB,Granzyme B -- cytotoxic enzyme released by NK/T cells.
+CCL4,"MIP-1beta -- chemokine, recruits immune cells."
+CXCL11,"I-TAC -- interferon-induced chemokine, recruits T cells."
+VEGFA,Vascular Endothelial Growth Factor A -- drives blood vessel formation (angiogenesis).
+IL7,Interleukin-7 -- cytokine required for lymphocyte development/survival.
+chem_alkaline_phosphatase,Alkaline phosphatase -- liver/bone enzyme.
+IL18,"Interleukin-18 -- pro-inflammatory cytokine, activates NK/T cells."
+l3_gzmb_cd27_em_cd4_t_cell_alt_alr,Additive-log-ratio (alr) transformed relative abundance of Granzyme B+ CD27+ effector memory CD4 T cell among PBMCs.
+l3_asdc,Relative abundance / frequency (untransformed) of AXL+/SIGLEC6+ dendritic cell (ASDC) among PBMCs.
+wb_allograft_rejection,"Gene-set activity score, in whole blood, for genes involved in immune rejection of transplanted tissue."
+l3_erythrocyte,Relative abundance / frequency (untransformed) of erythrocyte (red blood cell) among PBMCs.
+l1_erythrocyte_alr,Additive-log-ratio (alr) transformed relative abundance of erythrocyte (red blood cell) among PBMCs.
+l3_ilc,Relative abundance / frequency (untransformed) of innate lymphoid cell (ILC) among PBMCs.
+l1_ilc_alr,Additive-log-ratio (alr) transformed relative abundance of innate lymphoid cell (ILC) among PBMCs.
+l3_pdc,Relative abundance / frequency (untransformed) of plasmacytoid dendritic cell among PBMCs.
+l1_dc_alr,Additive-log-ratio (alr) transformed relative abundance of dendritic cell among PBMCs.
+l3_platelet,Relative abundance / frequency (untransformed) of platelet among PBMCs.
+l1_platelet_alr,Additive-log-ratio (alr) transformed relative abundance of platelet among PBMCs.
+l3_transitional_b_cell,Relative abundance / frequency (untransformed) of transitional B cell among PBMCs.
+l1_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of B cell among PBMCs.
+pb_cd14_cdc2_ifn_alpha,Pathway activity score for interferon alpha response within CD14 conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_cd14_cdc2_ifn_gamma,Pathway activity score for interferon gamma response within CD14 conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_core_cd14_monocyte_ifn_alpha,Pathway activity score for interferon alpha response within CD14 monocyte (peripheral blood).
+pb_cd14_cdc2_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within CD14 conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_cd14_cdc2_inflammatory,Pathway activity score for inflammatory response within CD14 conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_cd14_cdc2_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within CD14 conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_hla_drhi_cdc2_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within HLA-DR-high conventional dendritic cell 2 (cDC2) (peripheral blood).
+l2_intermediate_monocyte_alr,Additive-log-ratio (alr) transformed relative abundance of intermediate monocyte among PBMCs.
+pb_cd56bright_nk_cell_ifn_alpha,Pathway activity score for interferon alpha response within CD56bright NK cell (peripheral blood).
+pb_cd56bright_nk_cell_ifn_gamma,Pathway activity score for interferon gamma response within CD56bright NK cell (peripheral blood).
+pb_cd56bright_nk_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within CD56bright NK cell (peripheral blood).
+pb_pdc_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within plasmacytoid dendritic cell (peripheral blood).
+pb_cd8_mait_ifn_alpha,Pathway activity score for interferon alpha response within CD8 MAIT cell (peripheral blood).
+pb_cd8_mait_ifn_gamma,Pathway activity score for interferon gamma response within CD8 MAIT cell (peripheral blood).
+pb_gzmk_vd2_gdt_ifn_alpha,Pathway activity score for interferon alpha response within Granzyme K+ Vδ2 gamma-delta T cell (peripheral blood).
+pb_cd8_mait_inflammatory,Pathway activity score for inflammatory response within CD8 MAIT cell (peripheral blood).
+pb_cd8_mait_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within CD8 MAIT cell (peripheral blood).
+pb_cd8_mait_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within CD8 MAIT cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_gzmk_vd2_gdt_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within Granzyme K+ Vδ2 gamma-delta T cell (peripheral blood).
+pb_cm_cd4_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within central memory CD4 T cell (peripheral blood).
+pb_cm_cd4_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within central memory CD4 T cell (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_cm_cd4_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within central memory CD4 T cell (peripheral blood).
+pb_cm_cd4_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within central memory CD4 T cell (peripheral blood).
+pb_cm_cd8_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within central memory CD8 T cell (peripheral blood).
+pb_core_naive_cd4_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within naive CD4 T cell (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_memory_cd4_treg_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_cm_cd4_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within central memory CD4 T cell (peripheral blood).
+pb_core_naive_b_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within naive B cell (peripheral blood).
+pb_cm_cd4_t_cell_inflammatory,Pathway activity score for inflammatory response within central memory CD4 T cell (peripheral blood).
+pb_cd56bright_nk_cell_inflammatory,Pathway activity score for inflammatory response within CD56bright NK cell (peripheral blood).
+pb_memory_cd4_treg_inflammatory,Pathway activity score for inflammatory response within memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_cm_cd8_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within central memory CD8 T cell (peripheral blood).
+pb_cm_cd8_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within central memory CD8 T cell (peripheral blood).
+pb_cm_cd8_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within central memory CD8 T cell (peripheral blood).
+pb_cm_cd8_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within central memory CD8 T cell (peripheral blood).
+pb_gzmk_vd2_gdt_ifn_gamma,Pathway activity score for interferon gamma response within Granzyme K+ Vδ2 gamma-delta T cell (peripheral blood).
+pb_core_cd14_monocyte_ifn_gamma,Pathway activity score for interferon gamma response within CD14 monocyte (peripheral blood).
+pb_isg_cd14_monocyte_ifn_alpha,Pathway activity score for interferon alpha response within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_core_cd14_monocyte_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within CD14 monocyte (peripheral blood).
+pb_core_cd14_monocyte_inflammatory,Pathway activity score for inflammatory response within CD14 monocyte (peripheral blood).
+pb_intermediate_monocyte_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within intermediate monocyte (peripheral blood).
+pb_isg_cd14_monocyte_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_core_cd14_monocyte_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within CD14 monocyte (peripheral blood).
+pb_isg_cd14_monocyte_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_core_cd14_monocyte_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within CD14 monocyte (peripheral blood).
+pb_intermediate_monocyte_inflammatory,Pathway activity score for inflammatory response within intermediate monocyte (peripheral blood).
+pb_isg_cd14_monocyte_inflammatory,Pathway activity score for inflammatory response within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_intermediate_monocyte_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within intermediate monocyte (peripheral blood).
+pb_isg_cd14_monocyte_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_core_cd16_monocyte_ifn_alpha,Pathway activity score for interferon alpha response within CD16 monocyte (peripheral blood).
+pb_core_cd16_monocyte_ifn_gamma,Pathway activity score for interferon gamma response within CD16 monocyte (peripheral blood).
+pb_core_cd16_monocyte_inflammatory,Pathway activity score for inflammatory response within CD16 monocyte (peripheral blood).
+pb_core_cd16_monocyte_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within CD16 monocyte (peripheral blood).
+pb_core_memory_b_cell_ifn_gamma,Pathway activity score for interferon gamma response within memory B cell (peripheral blood).
+pb_core_memory_b_cell_ifn_alpha,Pathway activity score for interferon alpha response within memory B cell (peripheral blood).
+pb_core_memory_b_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within memory B cell (peripheral blood).
+pb_core_memory_b_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within memory B cell (peripheral blood).
+pb_core_memory_b_cell_inflammatory,Pathway activity score for inflammatory response within memory B cell (peripheral blood).
+pb_core_naive_b_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within naive B cell (peripheral blood).
+pb_core_memory_b_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within memory B cell (peripheral blood).
+pb_core_naive_b_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within naive B cell (peripheral blood).
+pb_core_naive_b_cell_ifn_alpha,Pathway activity score for interferon alpha response within naive B cell (peripheral blood).
+pb_core_naive_b_cell_ifn_gamma,Pathway activity score for interferon gamma response within naive B cell (peripheral blood).
+pb_core_naive_b_cell_inflammatory,Pathway activity score for inflammatory response within naive B cell (peripheral blood).
+pb_transitional_b_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within transitional B cell (peripheral blood).
+pb_transitional_b_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within transitional B cell (peripheral blood).
+pb_transitional_b_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within transitional B cell (peripheral blood).
+pb_core_naive_cd4_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within naive CD4 T cell (peripheral blood).
+pb_core_naive_cd4_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within naive CD4 T cell (peripheral blood).
+pb_core_naive_cd8_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within naive CD8 T cell (peripheral blood).
+pb_core_naive_cd8_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within naive CD8 T cell (peripheral blood).
+pb_core_naive_cd4_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within naive CD4 T cell (peripheral blood).
+pb_core_naive_cd8_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within naive CD8 T cell (peripheral blood).
+pb_core_naive_cd4_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within naive CD4 T cell (peripheral blood).
+pb_core_naive_cd4_t_cell_inflammatory,Pathway activity score for inflammatory response within naive CD4 T cell (peripheral blood).
+pb_core_naive_cd8_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within naive CD8 T cell (peripheral blood).
+pb_core_naive_cd8_t_cell_inflammatory,Pathway activity score for inflammatory response within naive CD8 T cell (peripheral blood).
+pb_naive_cd4_treg_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within naive CD4 regulatory T cell (Treg) (peripheral blood).
+pb_core_naive_cd8_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within naive CD8 T cell (peripheral blood).
+pb_naive_cd4_treg_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within naive CD4 regulatory T cell (Treg) (peripheral blood).
+pb_hla_drhi_cdc2_ifn_alpha,Pathway activity score for interferon alpha response within HLA-DR-high conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_memory_cd4_treg_ifn_alpha,Pathway activity score for interferon alpha response within memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_inflammatory,Pathway activity score for inflammatory response within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_gzmb_cd27_em_cd4_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within Granzyme B+ CD27+ effector memory CD4 T cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_ifn_alpha,Pathway activity score for interferon alpha response within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_ifn_gamma,Pathway activity score for interferon gamma response within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_inflammatory,Pathway activity score for inflammatory response within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_gzmk_cd56dim_nk_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within Granzyme K+ CD56dim NK cell (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_gzmk_vd2_gdt_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within Granzyme K+ Vδ2 gamma-delta T cell (peripheral blood).
+pb_gzmk_vd2_gdt_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within Granzyme K+ Vδ2 gamma-delta T cell (peripheral blood).
+pb_hla_drhi_cdc2_ifn_gamma,Pathway activity score for interferon gamma response within HLA-DR-high conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_hla_drhi_cdc2_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within HLA-DR-high conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_hla_drhi_cdc2_inflammatory,Pathway activity score for inflammatory response within HLA-DR-high conventional dendritic cell 2 (cDC2) (peripheral blood).
+pb_intermediate_monocyte_ifn_alpha,Pathway activity score for interferon alpha response within intermediate monocyte (peripheral blood).
+pb_intermediate_monocyte_ifn_gamma,Pathway activity score for interferon gamma response within intermediate monocyte (peripheral blood).
+pb_intermediate_monocyte_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within intermediate monocyte (peripheral blood).
+pb_isg_cd14_monocyte_ifn_gamma,Pathway activity score for interferon gamma response within ISG-high (interferon-stimulated-gene-high) CD14 monocyte (peripheral blood).
+pb_isg_memory_cd4_t_cell_ifn_alpha,Pathway activity score for interferon alpha response within ISG-high (interferon-stimulated-gene-high) memory CD4 T cell (peripheral blood).
+pb_isg_memory_cd4_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within ISG-high (interferon-stimulated-gene-high) memory CD4 T cell (peripheral blood).
+pb_isg_memory_cd4_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within ISG-high (interferon-stimulated-gene-high) memory CD4 T cell (peripheral blood).
+pb_isg_memory_cd4_t_cell_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within ISG-high (interferon-stimulated-gene-high) memory CD4 T cell (peripheral blood).
+pb_isg_memory_cd4_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within ISG-high (interferon-stimulated-gene-high) memory CD4 T cell (peripheral blood).
+pb_klrb1_memory_cd4_treg_ifn_alpha,Pathway activity score for interferon alpha response within KLRB1+ memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_klrb1_memory_cd4_treg_ifn_gamma,Pathway activity score for interferon gamma response within KLRB1+ memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_klrb1_memory_cd4_treg_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within KLRB1+ memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_klrb1_memory_cd4_treg_tnfa_nfkb,Pathway activity score for TNF-alpha/NF-kB signaling within KLRB1+ memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_klrb1_memory_cd4_treg_inflammatory,Pathway activity score for inflammatory response within KLRB1+ memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_ifn_gamma,Pathway activity score for interferon gamma response within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_inflammatory,Pathway activity score for inflammatory response within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_klrf1_gzmb_cd27_em_cd8_t_cell_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell (peripheral blood).
+pb_memory_cd4_treg_ifn_gamma,Pathway activity score for interferon gamma response within memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_memory_cd4_treg_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within memory CD4 regulatory T cell (Treg) (peripheral blood).
+pb_naive_cd4_treg_ifn_alpha,Pathway activity score for interferon alpha response within naive CD4 regulatory T cell (Treg) (peripheral blood).
+pb_naive_cd4_treg_ifn_gamma,Pathway activity score for interferon gamma response within naive CD4 regulatory T cell (Treg) (peripheral blood).
+pb_naive_cd4_treg_inflammatory,Pathway activity score for inflammatory response within naive CD4 regulatory T cell (Treg) (peripheral blood).
+l3_naive_cd4_treg_alr,Additive-log-ratio (alr) transformed relative abundance of naive CD4 regulatory T cell (Treg) among PBMCs.
+pb_pdc_ifn_alpha,Pathway activity score for interferon alpha response within plasmacytoid dendritic cell (peripheral blood).
+pb_pdc_ifn_gamma,Pathway activity score for interferon gamma response within plasmacytoid dendritic cell (peripheral blood).
+pb_pdc_il2_stat5,Pathway activity score for IL-2/STAT5 signaling within plasmacytoid dendritic cell (peripheral blood).
+pb_pdc_il6_jak_stat3,Pathway activity score for IL-6/JAK/STAT3 signaling within plasmacytoid dendritic cell (peripheral blood).
+pb_transitional_b_cell_ifn_alpha,Pathway activity score for interferon alpha response within transitional B cell (peripheral blood).
+pb_transitional_b_cell_ifn_gamma,Pathway activity score for interferon gamma response within transitional B cell (peripheral blood).
+wb_apical_junction,"Gene-set activity score, in whole blood, for genes for apical junction complex (cell-cell adhesion)."
+wb_epithelial_mesenchymal_transition,"Gene-set activity score, in whole blood, for genes for epithelial-to-mesenchymal transition."
+wb_apoptosis,"Gene-set activity score, in whole blood, for genes for programmed cell death."
+wb_cholesterol_homeostasis,"Gene-set activity score, in whole blood, for genes for cholesterol regulation."
+wb_il_2_stat5_signaling,"Gene-set activity score, in whole blood, for genes induced by IL-2/STAT5 signaling."
+wb_bile_acid_metabolism,"Gene-set activity score, in whole blood, for genes for bile acid metabolism."
+wb_pperoxisome,"Gene-set activity score, in whole blood, for genes for peroxisome function."
+wb_protein_secretion,"Gene-set activity score, in whole blood, for genes for protein secretion pathway."
+wb_coagulation,"Gene-set activity score, in whole blood, for genes for blood coagulation."
+wb_complement,"Gene-set activity score, in whole blood, for genes for the complement immune system."
+wb_uv_response_up,"Gene-set activity score, in whole blood, for genes upregulated in response to UV radiation."
+wb_e2f_targets,"Gene-set activity score, in whole blood, for genes regulated by the E2F transcription factor (cell cycle/proliferation)."
+wb_g2_m_checkpoint,"Gene-set activity score, in whole blood, for genes for the G2/M cell cycle checkpoint (proliferation)."
+wb_mtorc1_signaling,"Gene-set activity score, in whole blood, for genes induced by mTORC1 signaling (growth/metabolism)."
+wb_myc_targets_v1,"Gene-set activity score, in whole blood, for genes regulated by the MYC oncogene (proliferation), set 1."
+wb_hypoxia,"Gene-set activity score, in whole blood, for genes induced by low-oxygen conditions."
+wb_myogenesis,"Gene-set activity score, in whole blood, for genes for muscle cell development."
+wb_uv_response_dn,"Gene-set activity score, in whole blood, for genes downregulated in response to UV radiation."
+wb_estrogen_response_early,"Gene-set activity score, in whole blood, for genes for early estrogen response."
+wb_apical_surface,"Gene-set activity score, in whole blood, for genes for the apical cell membrane surface."
+wb_estrogen_response_late,"Gene-set activity score, in whole blood, for genes for late estrogen response."
+wb_mitotic_spindle,"Gene-set activity score, in whole blood, for genes for the mitotic spindle apparatus (cell division)."
+wb_inflammatory_response,"Gene-set activity score, in whole blood, for genes for general inflammatory response."
+wb_il_6_jak_stat3_signaling,"Gene-set activity score, in whole blood, for genes induced by IL-6/JAK/STAT3 signaling."
+wb_kras_signaling_up,"Gene-set activity score, in whole blood, for genes upregulated by KRAS oncogene signaling."
+wb_interferon_alpha_response,"Gene-set activity score, in whole blood, for genes induced by type-I interferon (IFN-alpha) signaling."
+wb_interferon_gamma_response,"Gene-set activity score, in whole blood, for genes induced by interferon-gamma signaling."
+wb_tnf_alpha_signaling_via_nf_kb,"Gene-set activity score, in whole blood, for genes induced by TNF-alpha via the NF-kB pathway."
+wb_adipogenesis,"Gene-set activity score, in whole blood, for genes for fat cell development."
+wb_glycolysis,"Gene-set activity score, in whole blood, for genes for glucose breakdown/energy metabolism."
+wb_dna_repair,"Gene-set activity score, in whole blood, for genes for DNA damage repair."
+wb_myc_targets_v2,"Gene-set activity score, in whole blood, for genes regulated by the MYC oncogene (proliferation), set 2."
+wb_spermatogenesis,"Gene-set activity score, in whole blood, for genes for sperm cell development."
+wb_reactive_oxygen_species_pathway,"Gene-set activity score, in whole blood, for genes for oxidative-stress response."
+wb_unfolded_protein_response,"Gene-set activity score, in whole blood, for genes for the cellular stress response to misfolded proteins."
+l2_effector_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of effector B cell among PBMCs.
+l2_memory_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of memory B cell among PBMCs.
+l3_isg_naive_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) naive B cell among PBMCs.
+l3_baeomap_cell,Relative abundance / frequency (untransformed) of [unrecognized marker/subset code -- verify against Azimuth PBMC L3 reference] cell among PBMCs.
+l2_plasma_cell_alr,Additive-log-ratio (alr) transformed relative abundance of plasma cell cell among PBMCs.
+l2_proliferating_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of proliferating T cell among PBMCs.
+l2_cd16_monocyte_alr,Additive-log-ratio (alr) transformed relative abundance of CD16 monocyte among PBMCs.
+l2_cd56bright_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of CD56bright NK cell among PBMCs.
+l2_proliferating_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of proliferating NK cell among PBMCs.
+l3_gzmk_cd56dim_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of Granzyme K+ CD56dim NK cell among PBMCs.
+l2_cd8aa_alr,Additive-log-ratio (alr) transformed relative abundance of CD8aa among PBMCs.
+l3_sox4_naive_cd4_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of SOX4+ (recent thymic emigrant marker) naive CD4 T cell among PBMCs.
+l2_mait_alr,Additive-log-ratio (alr) transformed relative abundance of MAIT cell among PBMCs.
+l3_naive_vd1_gdt_alr,Additive-log-ratio (alr) transformed relative abundance of naive Vδ1 gamma-delta T cell among PBMCs.
+l2_memory_cd4_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of memory CD4 T cell among PBMCs.
+l2_treg_alr,Additive-log-ratio (alr) transformed relative abundance of regulatory T cell (Treg) among PBMCs.
+l2_memory_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of memory CD8 T cell among PBMCs.
+l2_gdt_alr,Additive-log-ratio (alr) transformed relative abundance of gamma-delta T cell among PBMCs.
+l2_dn_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of double-negative T cell among PBMCs.
+l3_isg_cd14_monocyte_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) CD14 monocyte among PBMCs.
+l3_isg_cd16_monocyte_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) CD16 monocyte among PBMCs.
+l3_isg_cd56dim_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) CD56dim NK cell among PBMCs.
+l3_isg_cdc2_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) conventional dendritic cell 2 (cDC2) among PBMCs.
+l3_isg_memory_cd4_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) memory CD4 T cell among PBMCs.
+l3_isg_memory_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) memory CD8 T cell among PBMCs.
+l3_isg_naive_cd4_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) naive CD4 T cell among PBMCs.
+l1_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of NK cell among PBMCs.
+l3_adaptive_nk_cell_alr,Additive-log-ratio (alr) transformed relative abundance of adaptive (memory-like) NK cell among PBMCs.
+l2_pdc_alr,Additive-log-ratio (alr) transformed relative abundance of plasmacytoid dendritic cell among PBMCs.
+l3_cd14_cdc2_alr,Additive-log-ratio (alr) transformed relative abundance of CD14 conventional dendritic cell 2 (cDC2) among PBMCs.
+l3_cd27_effector_b_cell_alt_alr,Additive-log-ratio (alr) transformed relative abundance of CD27+ effector B cell among PBMCs.
+l3_klrf1_effector_vd1_gdt_alr,Additive-log-ratio (alr) transformed relative abundance of KLRF1+ effector Vδ1 gamma-delta T cell among PBMCs.
+l3_klrf1_effector_vd1_gdt_alt_alr,Additive-log-ratio (alr) transformed relative abundance of KLRF1+ effector Vδ1 gamma-delta T cell among PBMCs.
+l3_sox4_vd1_gdt_alr,Additive-log-ratio (alr) transformed relative abundance of SOX4+ (recent thymic emigrant marker) Vδ1 gamma-delta T cell among PBMCs.
+l3_klrf1_gzmb_cd27_em_cd8_t_cell_alt_alr,Additive-log-ratio (alr) transformed relative abundance of KLRF1+ Granzyme B+ CD27+ effector memory CD8 T cell among PBMCs.
+l3_cd95_memory_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of CD95(Fas)+ memory B cell among PBMCs.
+l3_type_2_polarized_memory_b_cell_alr,Additive-log-ratio (alr) transformed relative abundance of type 2 polarized memory B cell among PBMCs.
+l3_cm_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of central memory CD8 T cell among PBMCs.
+l3_isg_naive_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of ISG-high (interferon-stimulated-gene-high) naive CD8 T cell among PBMCs.
+l3_cd8aa,Relative abundance / frequency (untransformed) of CD8aa among PBMCs.
+l3_proliferating_nk_cell,Relative abundance / frequency (untransformed) of proliferating NK cell among PBMCs.
+l2_naive_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of naive CD8 T cell among PBMCs.
+l3_sox4_naive_cd8_t_cell_alr,Additive-log-ratio (alr) transformed relative abundance of SOX4+ (recent thymic emigrant marker) naive CD8 T cell among PBMCs.
+l3_cdc1,Relative abundance / frequency (untransformed) of conventional dendritic cell 1 (cDC1) among PBMCs.
+l1_monocyte_alr,Additive-log-ratio (alr) transformed relative abundance of monocyte among PBMCs.
+l1_progenitor_cell_alr,Additive-log-ratio (alr) transformed relative abundance of progenitor (stem/precursor) cell cell among PBMCs.
+bc_lymphocyte_count,"Lymphocyte count -- T cells, B cells, NK cells; adaptive + innate immunity (CBC differential)."
+bc_monocyte_count,Monocyte count -- precursors to macrophages/dendritic cells (CBC differential).
+l3_intermediate_monocyte,Relative abundance / frequency (untransformed) of intermediate monocyte among PBMCs.
