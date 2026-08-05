@@ -25,6 +25,9 @@ IMG_NET_DIR = ROOT / "data" / "images" / "network"
 IMG_HIST_DIR = ROOT / "data" / "images" / "hist"
 REPORT_DIR = ROOT / "data" / "reports"
 
+SCORECARD_PATH = REPORT_DIR / "all_networks_scorecard.csv"
+LIT_REVIEW_PATH = REPORT_DIR / "lit_review_module_dashboard_inputs.csv"
+
 ROOT_NODES = {"age_group", "sex", "cmv"}
 
 # --------------------------------------------------------------------------
@@ -139,6 +142,7 @@ LAYER_META = {
 }
 
 LAYER_ORDER = ["L1a", "L1b", "L2", "L3a", "L3b", "L4", "L5", "L6", "L_all"]
+LAYER_CASE_MAP = {k.upper(): k for k in LAYER_ORDER}
 
 COLOR_ROOT = "#e15759"       # red   — demographic / serostatus root nodes
 COLOR_PROTEIN = "#af7aa1"    # purple — Olink protein (ALL CAPS gene symbol)
@@ -148,6 +152,15 @@ COLOR_CLINICAL = "#4e79a7"   # blue  — clinical lab / metadata
 
 PATHWAY_LAYERS = {"L4", "L6"}
 CELLFREQ_LAYERS = {"L5"}
+
+# Validation-page palette — kept distinct from the layer/node colors above
+# so validation results are never visually confused with structure-learning
+# node categories.
+COLOR_SUPPORTED = "#2F6F62"     # teal  — agrees with expectation / literature
+COLOR_REVERSED = "#C1793B"      # amber — association found, direction disagrees
+COLOR_NODIR = "#8C9BAF"         # slate — related, no directional claim
+COLOR_CONFLICT = "#e15759"      # red   — actively conflicting
+COLOR_NOMATCH = "#D8D3C4"       # sand  — no literature match found (candidate novel)
 
 
 # --------------------------------------------------------------------------
@@ -338,6 +351,67 @@ def load_bootstrap_thresholds() -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path)
+
+
+@st.cache_data(show_spinner=False)
+def load_scorecard() -> pd.DataFrame:
+    """Held-out flu-vaccine validation scores per network, per validation
+    method (cv / bootstrap) — the project's first evaluation approach
+    (see About / Methods: 'Held-out benchmark'). Each `wvote_*` column runs
+    from -1 (the network's learned root -> feature -> flu-outcome path
+    contradicts literature-established expectation) to +1 (fully agrees),
+    weighted by edge strength x |effect size|; NaN means no root edge
+    existed at that layer to score for that root. `n_root_edges` matters:
+    a high score built on very few edges (e.g. <= 3) rests on too little
+    structure to trust on its own."""
+    if not SCORECARD_PATH.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(SCORECARD_PATH)
+    df["network"] = df["network"].map(LAYER_CASE_MAP).fillna(df["network"])
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def load_lit_review() -> pd.DataFrame:
+    """Per-network, per-model rollup of the project's second evaluation
+    approach (see About / Methods: 'Edge-level literature corroboration').
+    Every edge in a network's final DAG was searched against INDRA and
+    PubMed and classified as: direction Supported by what was found,
+    Reversed (an association is documented but the literature's direction
+    disagrees with the network's), related with No directional info, or
+    actively Conflicting — each further split by which source(s) surfaced
+    it. Edges with zero hits in either source ('No literature match found')
+    are the project's candidate-novel-finding pool."""
+    if not LIT_REVIEW_PATH.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(LIT_REVIEW_PATH)
+
+    def parse_network(n: str):
+        n = str(n).lower()
+        if n.endswith("_cv"):
+            return n[:-3], "cv"
+        if n.endswith("_boot"):
+            return n[:-5], "bootstrap"
+        return n, None
+
+    parsed = df["network"].apply(parse_network)
+    df["layer"] = parsed.apply(lambda t: t[0].upper()).map(LAYER_CASE_MAP)
+    df["model"] = parsed.apply(lambda t: t[1])
+
+    class_groups = {
+        "Supported": ["support_dir_indra_only", "support_dir_pm_only",
+                      "support_dir_both", "support_dir_neither"],
+        "Reversed": ["reverse_indra_only", "reverse_pm_only",
+                     "reverse_both", "reverse_neither"],
+        "No directional info": ["no_dir_indra_only", "no_dir_pm_only",
+                                 "no_dir_both", "no_dir_neither"],
+        "Conflicting": ["conflicting_indra_only", "conflicting_pm_only",
+                         "conflicting_both", "conflicting_neither"],
+    }
+    for label, cols in class_groups.items():
+        df[label] = df[cols].sum(axis=1)
+    df["No literature match found"] = df["edges"] - df["edges_with_search_results"]
+    return df
 
 
 @st.cache_data(show_spinner=False)
@@ -684,6 +758,108 @@ def model_comparison_findings() -> list[str]:
     return bullets
 
 
+@st.cache_data(show_spinner=False)
+def scorecard_findings() -> list[str]:
+    """Data-driven summary of the held-out flu-vaccine benchmark, computed
+    live from all_networks_scorecard.csv (CV rows)."""
+    sc = load_scorecard()
+    if sc.empty:
+        return []
+    cv = sc[sc["source"] == "cv"]
+    bullets = []
+
+    age = cv.dropna(subset=["wvote_age"]).sort_values("wvote_age", ascending=False)
+    if len(age):
+        well_supported = age[age["n_root_edges"] > 3]
+        thin = age[age["n_root_edges"] <= 3]
+        if len(well_supported):
+            top = well_supported.iloc[0]
+            bullets.append(
+                f"On <b>age</b>, the strongest well-supported result is "
+                f"<b>{top['network']}</b> ({top['wvote_age']:.2f}, built on "
+                f"{int(top['n_root_edges'])} root edges)."
+            )
+        if len(thin):
+            highest_thin = thin.sort_values("wvote_age", ascending=False).iloc[0]
+            if len(well_supported) == 0 or highest_thin["wvote_age"] > well_supported.iloc[0]["wvote_age"]:
+                bullets.append(
+                    f"<b>{highest_thin['network']}</b> scores higher still "
+                    f"({highest_thin['wvote_age']:.2f}) but on only "
+                    f"{int(highest_thin['n_root_edges'])} root edges — too little "
+                    f"structure for that score to be trustworthy on its own."
+                )
+
+    sex = cv.dropna(subset=["wvote_sex"])
+    if len(sex):
+        n_negative = int((sex["wvote_sex"] < 0).sum())
+        bullets.append(
+            f"<b>{n_negative} of {len(sex)}</b> networks score negative on "
+            f"<b>sex</b> under cross-validation — consistent with a measurement "
+            f"artifact in this cohort (men show weaker IgG fold-change but not "
+            f"weaker peak HAI, so paths tied to each endpoint can disagree by "
+            f"construction), not necessarily a modeling failure."
+        )
+        pos = sex[sex["wvote_sex"] > 0]
+        if len(pos):
+            bullets.append(
+                f"<b>{', '.join(pos['network'])}</b> is the exception, scoring "
+                f"positive on sex ({pos.iloc[0]['wvote_sex']:.2f})."
+            )
+
+    cmv = cv.dropna(subset=["wvote_cmv"])
+    bullets.append(
+        f"<b>CMV</b> has the sparsest validation coverage of the three roots: "
+        f"only <b>{len(cmv)} of {len(cv)}</b> networks had a scoreable CMV root "
+        f"edge under cross-validation."
+    )
+
+    return bullets
+
+
+@st.cache_data(show_spinner=False)
+def lit_review_findings() -> list[str]:
+    """Data-driven summary of the automated literature-corroboration
+    results, computed live from lit_review_module_dashboard_inputs.csv
+    (CV rows)."""
+    lr = load_lit_review()
+    if lr.empty:
+        return []
+    cv = lr[lr["model"] == "cv"]
+    bullets = []
+
+    total_edges = int(cv["edges"].sum())
+    total_results = int(cv["edges_with_search_results"].sum())
+    bullets.append(
+        f"Across the CV networks' final DAGs, <b>{total_results:,} of "
+        f"{total_edges:,}</b> edges (<b>{total_results / total_edges:.0%}</b>) "
+        f"returned at least one literature hit from the automated search."
+    )
+
+    total_support = int(cv["Supported"].sum())
+    total_reverse = int(cv["Reversed"].sum())
+    total_nodir = int(cv["No directional info"].sum())
+    total_conflict = int(cv["Conflicting"].sum())
+    bullets.append(
+        f"Of edges with a literature match: <b>{total_support:,}</b> agree in "
+        f"direction, <b>{total_nodir:,}</b> describe a related but non-directional "
+        f"association, <b>{total_reverse:,}</b> match an association but disagree "
+        f"on direction, and <b>{total_conflict:,}</b> are flagged as actively "
+        f"conflicting."
+    )
+
+    cv2 = cv.copy()
+    cv2["novel_rate"] = (cv2["No literature match found"] / cv2["edges"]).fillna(0)
+    top_novel = cv2.loc[cv2["novel_rate"].idxmax()]
+    bullets.append(
+        f"<b>{top_novel['layer']}</b> has the highest share of edges with no "
+        f"literature match at all (<b>{top_novel['novel_rate']:.0%}</b> of its "
+        f"{int(top_novel['edges'])} edges) — the largest pool of candidate novel "
+        f"findings, pending closer review."
+    )
+
+    return bullets
+
+
 # --------------------------------------------------------------------------
 # Page setup
 # --------------------------------------------------------------------------
@@ -703,7 +879,7 @@ st.sidebar.caption("Bayesian-network foundation model — results dashboard")
 page = st.sidebar.radio(
     "Navigate",
     ["Overview", "Network Explorer", "Diagnostics", "CV vs Bootstrap",
-     "Model Comparison", "About / Methods"],
+     "Model Comparison", "Validation", "About / Methods"],
 )
 
 MODEL_PAGES = {"Overview", "Network Explorer", "Diagnostics"}
@@ -820,9 +996,11 @@ if page == "Overview":
     )
     st.info(
         "Use **Network Explorer** in the sidebar to interactively browse, "
-        "filter, and query any of the nine learned networks below, or "
+        "filter, and query any of the nine learned networks below, "
         "**CV vs Bootstrap** to see exactly where the two validation "
-        "approaches agree and disagree.",
+        "approaches agree and disagree, or **Validation** to see how well "
+        "each network holds up against held-out flu outcomes and the "
+        "published literature.",
         icon="🕸️",
     )
 
@@ -1356,6 +1534,180 @@ elif page == "Model Comparison":
 
 
 # --------------------------------------------------------------------------
+# VALIDATION  (new — held-out benchmark + literature corroboration)
+# --------------------------------------------------------------------------
+elif page == "Validation":
+    st.markdown('<div class="eyebrow">DOES THE LEARNED STRUCTURE REFLECT REAL BIOLOGY?</div>', unsafe_allow_html=True)
+    st.title("Validation")
+    st.markdown(
+        """
+        <div class="hero-sub">Since this project has no single prediction target, every
+        network is checked two independent ways: a <b>held-out benchmark</b> against real
+        flu-vaccine outcomes never seen during training, and an automated <b>literature
+        corroboration</b> pass over every recovered edge. Both are shown here for both
+        validation strategies (CV and Bootstrap) side by side.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<hr class="hr-line">', unsafe_allow_html=True)
+
+    tab_benchmark, tab_litreview = st.tabs(["Held-out Benchmark (Flu Response)", "Literature Review"])
+
+    # ---------------- Held-out benchmark tab ----------------
+    with tab_benchmark:
+        sc = load_scorecard()
+        if sc.empty:
+            st.warning(
+                "No scorecard data found. Expected at "
+                f"`{SCORECARD_PATH.relative_to(ROOT)}`."
+            )
+        else:
+            st.markdown(
+                "Each root variable (age, sex, CMV) is scored from **-1** "
+                "(every learned root → feature → flu-outcome path the network "
+                "learned contradicts literature-established expectation) to "
+                "**+1** (every path agrees), weighted by edge strength × "
+                "|effect size|. `NaN` means the network had no root edge to "
+                "score for that root."
+            )
+            section_label("Key findings")
+            render_cards(scorecard_findings(), kind="finding")
+
+            root_choice = st.radio(
+                "Root variable", ["Age", "Sex", "CMV"], horizontal=True, key="val_root"
+            )
+            wvote_col = {"Age": "wvote_age", "Sex": "wvote_sex", "CMV": "wvote_cmv"}[root_choice]
+
+            plot_df = sc.dropna(subset=[wvote_col]).copy()
+            order = (
+                plot_df[plot_df["source"] == "cv"]
+                .sort_values(wvote_col, ascending=False)["network"]
+                .tolist()
+            )
+            remaining = [n for n in plot_df["network"].unique() if n not in order]
+            order = order + remaining
+
+            plot_df["source_label"] = plot_df["source"].map(
+                {"cv": MODELS["cv"]["label"], "bootstrap": MODELS["bootstrap"]["label"]}
+            )
+            fig = px.bar(
+                plot_df, x="network", y=wvote_col, color="source_label",
+                barmode="group", category_orders={"network": order},
+                title=f"{root_choice} validation score by network",
+                labels={wvote_col: f"wvote_{root_choice.lower()} (-1 to +1)", "network": "Network"},
+                color_discrete_map={
+                    MODELS["cv"]["label"]: MODELS["cv"]["color"],
+                    MODELS["bootstrap"]["label"]: MODELS["bootstrap"]["color"],
+                },
+                hover_data=["n_root_edges", "n_subjects"],
+            )
+            fig.update_layout(
+                yaxis_range=[-1.05, 1.05],
+                plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                font=dict(family="Inter, sans-serif", color="#16233B"),
+                title_font=dict(family="Source Serif 4, serif", size=16),
+                legend_title_text="",
+            )
+            fig.add_hline(y=0, line_color="#8C9BAF", line_dash="dot",
+                           annotation_text="coin flip")
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                "Hover a bar to see how many root edges and subjects it's based "
+                "on — a high score built on very few edges (roughly ≤ 3) rests "
+                "on too little structure to trust on its own."
+            )
+
+            st.markdown("### Raw scorecard")
+            display_cols = ["network", "source", "label", "n_subjects", "n_root_edges",
+                             "n_flu_relevant", "agree_all", "agree_relevant",
+                             "wvote_age", "wvote_sex", "wvote_cmv"]
+            st.dataframe(
+                sc[display_cols].sort_values(["network", "source"]),
+                use_container_width=True, hide_index=True,
+            )
+            st.download_button(
+                "Download full scorecard (CSV)",
+                sc.to_csv(index=False).encode("utf-8"),
+                file_name="all_networks_scorecard.csv",
+                mime="text/csv",
+            )
+
+    # ---------------- Literature review tab ----------------
+    with tab_litreview:
+        lr = load_lit_review()
+        if lr.empty:
+            st.warning(
+                "No literature-review data found. Expected at "
+                f"`{LIT_REVIEW_PATH.relative_to(ROOT)}`."
+            )
+        else:
+            st.markdown(
+                "Every edge in a network's final DAG was automatically searched "
+                "against **INDRA** and **PubMed** and classified by whether the "
+                "literature agrees on both the association and its direction."
+            )
+            section_label("Key findings")
+            render_cards(lit_review_findings(), kind="finding")
+
+            lr_model_label = st.radio(
+                "Validation strategy", [MODELS["cv"]["label"], MODELS["bootstrap"]["label"]],
+                horizontal=True, key="val_lr_model",
+            )
+            lr_model = "cv" if lr_model_label == MODELS["cv"]["label"] else "bootstrap"
+            lr_view = lr[lr["model"] == lr_model].sort_values("edges", ascending=False)
+
+            class_cols = ["Supported", "No directional info", "Reversed",
+                          "Conflicting", "No literature match found"]
+            melt = lr_view.melt(
+                id_vars="layer", value_vars=class_cols,
+                var_name="Classification", value_name="Edges",
+            )
+            fig_lr = px.bar(
+                melt, x="layer", y="Edges", color="Classification", barmode="stack",
+                title=f"Edge literature-classification breakdown — {MODELS[lr_model]['label']}",
+                category_orders={"layer": lr_view["layer"].tolist()},
+                color_discrete_map={
+                    "Supported": COLOR_SUPPORTED,
+                    "No directional info": COLOR_NODIR,
+                    "Reversed": COLOR_REVERSED,
+                    "Conflicting": COLOR_CONFLICT,
+                    "No literature match found": COLOR_NOMATCH,
+                },
+            )
+            fig_lr.update_layout(
+                plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF",
+                font=dict(family="Inter, sans-serif", color="#16233B"),
+                title_font=dict(family="Source Serif 4, serif", size=16),
+                legend_title_text="",
+            )
+            st.plotly_chart(fig_lr, use_container_width=True)
+
+            st.markdown("### Raw literature-review rollup")
+            display_cols_lr = ["layer", "model", "edges", "edges_with_search_results"] + class_cols
+            st.dataframe(
+                lr[display_cols_lr].sort_values(["layer", "model"]),
+                use_container_width=True, hide_index=True,
+            )
+            st.caption(
+                "`No literature match found` = edges with zero hits in either "
+                "source — the project's candidate-novel-finding pool, pending "
+                "closer manual review rather than automated classification. "
+                "Note: for L3a, the four classification totals (Supported + "
+                "No directional info + Reversed + Conflicting) don't sum "
+                "exactly to `edges_with_search_results` (off by 1 under CV, "
+                "3 under Bootstrap) — a small discrepancy in the source data "
+                "worth checking against the underlying classification "
+                "pipeline before treating L3a's breakdown as fully reconciled."
+            )
+            st.download_button(
+                "Download full literature-review rollup (CSV)",
+                lr.to_csv(index=False).encode("utf-8"),
+                file_name="lit_review_module_dashboard_inputs.csv",
+                mime="text/csv",
+            )
+
+
+# --------------------------------------------------------------------------
 # ABOUT / METHODS
 # --------------------------------------------------------------------------
 else:
@@ -1414,27 +1766,21 @@ two strategies agree and disagree on structure.
 ### Evaluation
 
 Two complementary validation approaches are used, since the project has
-no single prediction target:
+no single prediction target — both are shown in full on the **Validation**
+page:
 
 1. **Held-out benchmark (influenza vaccine response).** Serology and HAI
    titers are excluded from training (structured missingness) and instead
    used to check whether the fitted network's conditional-probability
    queries agree in direction and approximate magnitude with
    literature-established relationships (e.g., older age and CMV
-   seropositivity suppressing vaccine response).
+   seropositivity suppressing vaccine response). Scored per root variable
+   (age, sex, CMV) and per network as a weighted vote from -1 to +1.
 2. **Edge-level literature corroboration.** Each recovered edge is
-   evaluated by an automated, LLM-assisted literature search and
-   classified as strongly supported, plausibly related, unsupported
-   (candidate novel finding), or in conflict with prior literature.
-
-> **Note on this dashboard's current data:** the edge tables powering
-> the *Network Explorer*, *Diagnostics*, and *CV vs Bootstrap* pages
-> contain arc **strength**, **direction**, and **final-DAG membership**
-> from both the CV and Bootstrap structure-learning runs — they do not
-> yet carry the per-edge literature-classification labels described
-> above. That classification pipeline is separate future work; once
-> available, the edge tables can be joined on `(from, to)` and this
-> dashboard extended with a literature-support filter/legend.
+   evaluated by an automated search against INDRA and PubMed and
+   classified as direction-supported, direction-reversed, related with no
+   directional claim, actively conflicting, or unmatched (a candidate
+   novel finding), per network and per validation strategy.
 
 ### Key assumptions & limitations
 
@@ -1452,6 +1798,14 @@ no single prediction target:
   strategy does not by itself mean it is "wrong" — see **CV vs
   Bootstrap** for where the two agree, and treat direction-reversed
   connections between the two as lower-confidence causal calls.
+- A high held-out benchmark score built on very few root edges (roughly
+  ≤ 3) rests on too little structure to be trustworthy on its own — check
+  `n_root_edges` on the **Validation** page before treating a score at
+  face value.
+- The literature-corroboration pipeline reports what automated search
+  found, not a definitive verdict — "no literature match found" is a
+  candidate-novel-finding pool pending closer manual review, not a
+  confirmed discovery.
 
 ### Links
 
